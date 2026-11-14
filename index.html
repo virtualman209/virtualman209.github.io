@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>VM Projects</title>
+<link rel="icon" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap&subset=vietnamese" rel="stylesheet">
+<style>
+:root{
+  /* layout: thanh bên (mục lục + tìm kiếm) và vùng đọc; nội dung lấy từ GitHub API, không lưu trong trang */
+  --bg:#f4f5f7; --panel:#ffffff; --ink:#1c2130; --muted:#646c80; --line:#dfe3ea;
+  --accent:#3a5bd9; --accent-soft:#e6ebfc; --ok:#1f8a5b; --warn-soft:#fbeedd; --danger:#c23b30;
+  --font:"Be Vietnam Pro",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#14161d; --panel:#1b1e27; --ink:#e6e8ef; --muted:#9aa1b5; --line:#2c3040;
+    --accent:#8ea3ff; --accent-soft:#262d4d; --ok:#5fd39a; --warn-soft:#3a2a18; --danger:#f07a70; color-scheme:dark; }
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:15px/1.65 var(--font)}
+button,input{font:inherit}
+button{cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:6px 12px}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.5;cursor:default}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hidden{display:none!important}
+
+/* đăng nhập */
+.login{min-height:100%;display:grid;place-items:center;padding:24px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:28px;max-width:520px;width:100%}
+.card h1{font-size:22px;margin:0 0 6px}
+.card p{color:var(--muted);margin:0 0 16px}
+.card label{display:block;font-size:13px;font-weight:500;margin:12px 0 4px}
+.card input{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+.card .row{display:flex;gap:8px;margin-top:18px;align-items:center}
+.card .err{color:var(--danger);font-size:14px;margin-top:10px;min-height:1em}
+.card details{margin-top:16px;font-size:14px;color:var(--muted)}
+.card details ol{padding-left:20px;margin:8px 0 0}
+
+/* app */
+.app{display:grid;grid-template-columns:290px 1fr;height:100%}
+aside{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
+.brand{padding:16px 16px 10px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.brand b{font-weight:600;font-size:16px}
+.brand small{display:block;color:var(--muted);font-size:12px}
+.search{padding:0 16px 10px}
+.search input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+nav{overflow:auto;padding:0 8px 16px;flex:1}
+.group{margin-top:12px}
+.group h4{margin:0 8px 4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.item{display:block;width:100%;text-align:left;border:0;background:none;padding:6px 10px;border-radius:6px;line-height:1.35}
+.item:hover{background:var(--bg)}
+.item.active{background:var(--accent-soft);color:var(--accent);font-weight:500}
+.item small{display:block;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:400}
+.item mark{background:var(--warn-soft);color:inherit;border-radius:3px}
+.side-foot{border-top:1px solid var(--line);padding:10px 16px;display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)}
+.side-foot span{flex:1}
+main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.bar{display:flex;align-items:center;gap:8px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+.menu{display:none}
+.crumb{flex:1;min-width:100px;color:var(--muted);font-size:13px;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.progress{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.progress .track{width:110px;height:6px;border-radius:9px;background:var(--line);overflow:hidden}
+.progress .track i{display:block;height:100%;background:var(--ok)}
+.scroll{overflow:auto;flex:1}
+article{max-width:860px;margin:0 auto;padding:28px 32px 80px}
+article h1{font-size:28px;line-height:1.25;margin:0 0 16px;text-wrap:balance}
+article h2{font-size:21px;margin:32px 0 10px;padding-top:12px;border-top:1px solid var(--line)}
+article h3{font-size:17px;margin:22px 0 8px}
+article a{color:var(--accent)}
+article code{font-family:var(--mono);font-size:13px;background:var(--bg);padding:1px 5px;border-radius:4px}
+article pre{background:var(--bg);border:1px solid var(--line);padding:12px 14px;border-radius:8px;overflow:auto}
+article pre code{background:none;padding:0}
+article blockquote{margin:12px 0;padding:6px 16px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0}
+article table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+article th,article td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
+article th{background:var(--bg);font-weight:600}
+article li.task{list-style:none;margin-left:-22px}
+article li.task input{width:16px;height:16px;margin:0 8px 0 0;vertical-align:-2px;accent-color:var(--ok);cursor:pointer}
+article li.task.done{color:var(--muted)}
+article .flash{animation:flash 1.6s ease-out}
+@keyframes flash{from{background:var(--warn-soft)}to{background:transparent}}
+.empty{color:var(--muted);text-align:center;padding:80px 20px}
+.editor{display:grid;grid-template-columns:1fr 1fr;flex:1;min-height:0}
+.editor textarea{border:0;border-right:1px solid var(--line);resize:none;padding:20px;font:14px/1.6 var(--mono);background:var(--panel);color:var(--ink);outline:none}
+.editor .scroll{background:var(--bg)}
+.toast{position:fixed;right:16px;bottom:16px;left:auto;max-width:420px;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:8px;padding:12px 16px;box-shadow:0 8px 30px rgba(0,0,0,.15);white-space:pre-wrap;font-size:14px;z-index:9}
+.toast.err{border-left-color:var(--danger)}
+@media (max-width:760px){
+  .app{grid-template-columns:1fr}
+  aside{position:fixed;inset:0 25% 0 0;z-index:5;box-shadow:0 0 40px rgba(0,0,0,.3);transform:translateX(-105%);transition:transform .2s}
+  .app.nav-open aside{transform:none}
+  .menu{display:inline-block}
+  article{padding:20px 18px 80px}
+  .editor{grid-template-columns:1fr}.editor .scroll{display:none}
+  .progress .track{width:60px}
+  .toast{left:16px}
+}
+@media (prefers-reduced-motion:reduce){aside{transition:none}article .flash{animation:none}}
+</style>
+</head>
+<body>
+
+<section class="login hidden" id="login">
+  <form class="card" id="loginForm">
+    <h1>VM Projects</h1>
+    <p>Trang này không chứa nội dung. Nó đọc thẳng từ repo private của bạn trên GitHub bằng token bạn dán vào. Token chỉ lưu trên thiết bị này.</p>
+    <label for="token">GitHub token</label>
+    <input id="token" type="password" autocomplete="off" placeholder="github_pat_…" required>
+    <label for="repo">Repo</label>
+    <input id="repo" value="virtualman209/vm-projects" required>
+    <div class="row"><button class="primary" type="submit" id="loginBtn">Vào</button></div>
+    <div class="err" id="loginErr" role="alert"></div>
+    <details>
+      <summary>Cách tạo token (một lần)</summary>
+      <ol>
+        <li>Mở <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a></li>
+        <li><b>Expiration</b>: chọn thời hạn (ví dụ 1 năm).</li>
+        <li><b>Repository access</b>: Only select repositories → chọn <code>vm-projects</code>.</li>
+        <li><b>Permissions → Repository permissions → Contents</b>: <b>Read and write</b> (chỉ đọc thì chọn Read-only, khi đó không tick hay sửa được).</li>
+        <li>Bấm <b>Generate token</b>, copy chuỗi <code>github_pat_…</code> và dán vào ô trên.</li>
+      </ol>
+    </details>
+  </form>
+</section>
+
+<div class="app hidden" id="app">
+  <aside>
+    <div class="brand">
+      <div><b>VM Projects</b><small id="repoName"></small></div>
+      <button id="newBtn" title="Tạo ghi chú mới">+ Mới</button>
+    </div>
+    <div class="search"><input id="q" type="search" placeholder="Tìm trong mọi tài liệu…" aria-label="Tìm kiếm"></div>
+    <nav id="nav" aria-label="Tài liệu"></nav>
+    <div class="side-foot"><span id="status">Đang tải…</span><button id="reloadBtn" title="Tải lại từ GitHub">Tải lại</button><button id="logoutBtn">Thoát</button></div>
+  </aside>
+  <main>
+    <div class="bar">
+      <button class="menu" id="menuBtn" aria-label="Mục lục">☰</button>
+      <span class="crumb" id="crumb"></span>
+      <span class="progress hidden" id="progress"><span class="track"><i></i></span><span id="progText"></span></span>
+      <button id="askBtn" title="Copy câu lệnh để nhờ Claude, kèm file đang mở">Nhờ Claude</button>
+      <button id="editBtn">Sửa</button>
+      <button id="saveBtn" class="primary hidden">Lưu</button>
+      <button id="cancelBtn" class="hidden">Huỷ</button>
+    </div>
+    <div class="scroll" id="viewScroll"><article id="view"><div class="empty">Đang tải…</div></article></div>
+    <div class="editor hidden" id="editor">
+      <textarea id="src" spellcheck="false" aria-label="Nội dung Markdown"></textarea>
+      <div class="scroll"><article id="preview"></article></div>
+    </div>
+  </main>
+</div>
+<div class="toast hidden" id="toast" role="status"></div>
+
+<script src="vendor/marked.umd.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const params = new URLSearchParams(location.search);
+const API = params.get("api") || "https://api.github.com";       // ?api= chỉ dùng khi thử nghiệm
+const KEY = "vmprojects.auth";
+const GROUPS = {"": "Chung", "projects/dunmorn": "Dunmorn", "tools": "Công cụ", "notes": "Ghi chú"};
+const ORDER = ["projects/dunmorn", "", "tools", "notes"];
+const SKIP = /^(app|vendor|\.github)\//;
+let auth = null, branch = "main", docs = {}, cur = null, editing = false, dirty = false, canWrite = true;
+
+/* ---------------- tiện ích ---------------- */
+function store(v) { try { v ? localStorage.setItem(KEY, JSON.stringify(v)) : localStorage.removeItem(KEY); } catch {} }
+function loadAuth() { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch { return null; } }
+function toast(msg, err = false, ms = 3500) {
+  const t = $("#toast"); t.textContent = msg; t.classList.toggle("err", err); t.classList.remove("hidden");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.add("hidden"), ms);
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const b64decode = b => new TextDecoder().decode(Uint8Array.from(atob(b.replace(/\s/g, "")), c => c.charCodeAt(0)));
+function b64encode(s) { const bytes = new TextEncoder().encode(s); let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); }
+const encPath = p => p.split("/").map(encodeURIComponent).join("/");
+
+async function gh(path, opts = {}) {
+  const r = await fetch(API + path, {...opts, cache: "no-store", headers: {
+    "Authorization": "Bearer " + auth.token, "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28", ...(opts.body ? {"Content-Type": "application/json"} : {})}});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const msg = {401: "Token không hợp lệ hoặc đã hết hạn.", 403: "Token không có quyền này (cần Contents: Read and write để sửa).",
+                 404: "Không thấy repo hoặc file. Kiểm tra tên repo và quyền của token.",
+                 409: "File vừa bị thay đổi ở nơi khác. Đã tải lại, hãy sửa tiếp.",
+                 422: "GitHub từ chối thay đổi (có thể file vừa bị sửa ở nơi khác)."}[r.status] || (data.message || r.statusText);
+    throw Object.assign(new Error(msg), {status: r.status});
+  }
+  return data;
+}
+
+/* ---------------- tải nội dung ---------------- */
+function titleOf(text, path) { const m = text.match(/^# (.+)$/m); return m ? m[1].trim() : path.split("/").pop().replace(/\.md$/, ""); }
+async function loadAll() {
+  $("#status").textContent = "Đang tải từ GitHub…";
+  const repo = await gh(`/repos/${auth.repo}`);
+  branch = repo.default_branch || "main";
+  canWrite = !repo.permissions || !!repo.permissions.push;
+  const tree = await gh(`/repos/${auth.repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`);
+  const mds = tree.tree.filter(t => t.type === "blob" && /\.md$/i.test(t.path) && !SKIP.test(t.path));
+  const next = {};
+  await Promise.all(mds.map(async t => {
+    const old = docs[t.path];
+    if (old && old.sha === t.sha) { next[t.path] = old; return; }
+    const blob = await gh(`/repos/${auth.repo}/git/blobs/${t.sha}`);
+    const text = b64decode(blob.content);
+    next[t.path] = {path: t.path, sha: t.sha, text, title: titleOf(text, t.path), dir: t.path.includes("/") ? t.path.slice(0, t.path.lastIndexOf("/")) : ""};
+  }));
+  docs = next;
+  $("#status").textContent = `${mds.length} tài liệu · ${new Date().toLocaleTimeString("vi-VN", {hour: "2-digit", minute: "2-digit"})}` + (canWrite ? "" : " · chỉ đọc");
+  $("#editBtn").disabled = !canWrite; $("#newBtn").disabled = !canWrite;
+  drawNav();
+}
+
+/* ---------------- mục lục & tìm kiếm ---------------- */
+function drawNav() {
+  const q = $("#q").value.trim();
+  if (q) return drawSearch(q);
+  const nav = $("#nav"); nav.innerHTML = "";
+  const list = Object.values(docs);
+  const dirs = [...new Set(list.map(f => f.dir))].sort((a, b) => {
+    const ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+  });
+  for (const d of dirs) {
+    const g = document.createElement("div"); g.className = "group";
+    g.innerHTML = `<h4>${esc(GROUPS[d] ?? d)}</h4>`;
+    list.filter(f => f.dir === d).sort((a, b) => (b.path.endsWith("README.md") - a.path.endsWith("README.md")) || a.title.localeCompare(b.title, "vi"))
+      .forEach(f => g.appendChild(navItem(f.title, f.path, esc(f.path), () => go(f.path))));
+    nav.appendChild(g);
+  }
+}
+function navItem(title, path, sub, onclick) {
+  const b = document.createElement("button");
+  b.className = "item" + (cur && cur.path === path && !$("#q").value.trim() ? " active" : "");
+  b.innerHTML = `${esc(title)}<small>${sub}</small>`;
+  b.onclick = () => { onclick(); $("#app").classList.remove("nav-open"); };
+  return b;
+}
+function drawSearch(q) {
+  const low = q.toLowerCase(), re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+  const hits = [];
+  for (const d of Object.values(docs)) {
+    let heading = "";
+    d.text.split("\n").forEach(line => {
+      if (line.startsWith("#")) heading = line.replace(/^#+\s*/, "");
+      if (line.toLowerCase().includes(low) && hits.length < 80) hits.push({d, heading, line: line.trim().slice(0, 220)});
+    });
+  }
+  const nav = $("#nav"); nav.innerHTML = "";
+  const g = document.createElement("div"); g.className = "group"; g.innerHTML = `<h4>${hits.length} kết quả</h4>`;
+  hits.forEach(h => g.appendChild(navItem(h.d.title + (h.heading ? " › " + h.heading : ""), h.d.path,
+    esc(h.line).replace(re, m => `<mark>${m}</mark>`), () => go(h.d.path, q))));
+  nav.appendChild(g);
+}
+$("#q").addEventListener("input", () => { clearTimeout(window._qt); window._qt = setTimeout(drawNav, 150); });
+
+/* ---------------- hiển thị ---------------- */
+function taskLines(text) {
+  const out = []; let fence = false;
+  text.split("\n").forEach((l, i) => {
+    if (/^\s*(```|~~~)/.test(l)) fence = !fence;
+    else if (!fence && /^\s*([-*+]|\d+[.)])\s+\[[ xX]\]/.test(l)) out.push(i);
+  });
+  return out;
+}
+function resolve(base, href) {
+  const parts = base.split("/").slice(0, -1);
+  for (const p of href.split("/")) { if (p === "..") parts.pop(); else if (p && p !== ".") parts.push(p); }
+  return parts.join("/");
+}
+function render(el, text, path, interactive) {
+  el.innerHTML = marked.parse(text, {gfm: true});
+  const boxes = el.querySelectorAll('li > input[type="checkbox"], li > p > input[type="checkbox"]');
+  const lines = taskLines(text);
+  boxes.forEach((box, i) => {
+    const li = box.closest("li"); li.classList.add("task"); li.classList.toggle("done", box.checked);
+    box.disabled = !(interactive && canWrite);
+    if (interactive && canWrite) box.addEventListener("change", () => toggleTask(lines[i], box));
+  });
+  el.querySelectorAll("a[href]").forEach(a => {
+    const h = a.getAttribute("href");
+    if (/^https?:/i.test(h)) { a.target = "_blank"; a.rel = "noopener"; return; }
+    if (/\.md(#.*)?$/i.test(h)) {
+      const target = resolve(path, decodeURIComponent(h.replace(/#.*$/, "")));
+      a.href = "#" + target; a.onclick = e => { e.preventDefault(); go(target); };
+    }
+  });
+  if (interactive) {
+    const total = boxes.length, done = [...boxes].filter(b => b.checked).length;
+    $("#progress").classList.toggle("hidden", !total);
+    if (total) { $("#progress i").style.width = (100 * done / total) + "%"; $("#progText").textContent = `${done}/${total}`; }
+  }
+}
+function go(path, highlight) {
+  if (editing && dirty && !confirm("Bạn có thay đổi chưa lưu. Bỏ qua?")) return;
+  setEditing(false);
+  const d = docs[path];
+  if (!d) { $("#view").innerHTML = `<div class="empty">Không thấy file ${esc(path)}.</div>`; return; }
+  cur = d;
+  if (location.hash.slice(1) !== path) history.replaceState(null, "", "#" + path);
+  $("#crumb").textContent = path;
+  render($("#view"), d.text, d.path, true);
+  drawNav(); $("#viewScroll").scrollTop = 0;
+  if (highlight) {
+    const low = highlight.toLowerCase();
+    const el = [...$("#view").querySelectorAll("p,li,td,h1,h2,h3,h4,blockquote")].find(n => n.textContent.toLowerCase().includes(low));
+    if (el) { el.scrollIntoView({block: "center"}); el.classList.add("flash"); }
+  }
+}
+
+/* ---------------- sửa & lưu (commit thẳng lên GitHub) ---------------- */
+async function commit(path, text, sha, message) {
+  const body = {message, content: b64encode(text), branch, ...(sha ? {sha} : {})};
+  const r = await gh(`/repos/${auth.repo}/contents/${encPath(path)}`, {method: "PUT", body: JSON.stringify(body)});
+  return r.content.sha;
+}
+let saving = Promise.resolve();
+async function save(text, message) {
+  const d = cur;
+  const job = saving.then(async () => {
+    try {
+      d.sha = await commit(d.path, text, d.sha, message);
+      d.text = text; d.title = titleOf(text, d.path); dirty = false;
+      return true;
+    } catch (e) {
+      toast(e.message, true, 6000);
+      if (e.status === 409 || e.status === 422) { await loadAll(); go(d.path); }
+      return false;
+    }
+  });
+  saving = job.catch(() => {});
+  return job;
+}
+async function toggleTask(line, box) {
+  if (line === undefined || !cur) return;
+  const ls = cur.text.split("\n");
+  const label = ls[line].replace(/^\s*([-*+]|\d+[.)])\s+\[[ xX]\]\s*/, "").replace(/\*\*/g, "").slice(0, 60);
+  ls[line] = ls[line].replace(/\[[ xX]\]/, box.checked ? "[x]" : "[ ]");
+  box.disabled = true;
+  const ok = await save(ls.join("\n"), `${box.checked ? "Xong" : "Bỏ tick"}: ${label}`);
+  box.disabled = false;
+  if (ok) { render($("#view"), cur.text, cur.path, true); toast(box.checked ? "Đã tick và lưu lên GitHub." : "Đã bỏ tick."); }
+  else box.checked = !box.checked;
+}
+function setEditing(on) {
+  editing = on; dirty = false;
+  $("#editor").classList.toggle("hidden", !on); $("#viewScroll").classList.toggle("hidden", on);
+  $("#editBtn").classList.toggle("hidden", on);
+  $("#saveBtn").classList.toggle("hidden", !on); $("#cancelBtn").classList.toggle("hidden", !on);
+  if (on) { $("#src").value = cur.text; render($("#preview"), cur.text, cur.path, false); $("#src").focus(); }
+}
+$("#editBtn").onclick = () => cur && setEditing(true);
+$("#cancelBtn").onclick = () => { if (!dirty || confirm("Bỏ các thay đổi chưa lưu?")) { setEditing(false); render($("#view"), cur.text, cur.path, true); } };
+$("#saveBtn").onclick = async () => {
+  const b = $("#saveBtn"); b.disabled = true; b.textContent = "Đang lưu…";
+  const ok = await save($("#src").value, `Sửa ${cur.path} từ web`);
+  b.disabled = false; b.textContent = "Lưu";
+  if (ok) { setEditing(false); render($("#view"), cur.text, cur.path, true); drawNav(); toast("Đã lưu lên GitHub."); }
+};
+let pv;
+$("#src").addEventListener("input", () => { dirty = true; clearTimeout(pv); pv = setTimeout(() => render($("#preview"), $("#src").value, cur.path, false), 150); });
+document.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && editing) { e.preventDefault(); $("#saveBtn").click(); }
+  if (e.key === "Escape" && editing) $("#cancelBtn").click();
+});
+window.addEventListener("beforeunload", e => { if (editing && dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+$("#newBtn").onclick = async () => {
+  let p = prompt("Tên ghi chú mới (có thể kèm thư mục, ví dụ: notes/y-tuong-boss):", "notes/");
+  if (!p || p.endsWith("/")) return;
+  p = p.trim().replace(/^\/+/, ""); if (!/\.md$/i.test(p)) p += ".md";
+  if (docs[p]) return go(p);
+  const name = p.split("/").pop().replace(/\.md$/i, "").replace(/-/g, " ");
+  const text = `# ${name.charAt(0).toUpperCase() + name.slice(1)}\n\n`;
+  try {
+    const sha = await commit(p, text, null, `Tạo ${p} từ web`);
+    docs[p] = {path: p, sha, text, title: titleOf(text, p), dir: p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ""};
+    drawNav(); go(p); setEditing(true);
+  } catch (e) { toast(e.message, true); }
+};
+$("#askBtn").onclick = async () => {
+  const text = `Đọc repo ${auth.repo} (bắt đầu từ CLAUDE.md${cur ? ", rồi file " + cur.path : ""}) và giúp ta: `;
+  try { await navigator.clipboard.writeText(text); toast("Đã copy. Dán vào Claude rồi viết tiếp yêu cầu."); }
+  catch { prompt("Copy dòng này:", text); }
+};
+$("#reloadBtn").onclick = async () => {
+  if (editing && dirty) return toast("Lưu hoặc huỷ phần đang sửa trước.", true);
+  try { await loadAll(); if (cur) go(cur.path); toast("Đã tải bản mới nhất."); } catch (e) { toast(e.message, true); }
+};
+$("#logoutBtn").onclick = () => { if (confirm("Xoá token khỏi thiết bị này?")) { store(null); location.reload(); } };
+$("#menuBtn").onclick = () => $("#app").classList.toggle("nav-open");
+window.addEventListener("hashchange", () => { const p = decodeURIComponent(location.hash.slice(1)); if (p && docs[p] && (!cur || p !== cur.path)) go(p); });
+document.addEventListener("visibilitychange", () => {      // quay lại tab sau lâu thì tự tải bản mới
+  if (document.visibilityState === "visible" && auth && !editing && Date.now() - (window._last || 0) > 120000) {
+    window._last = Date.now(); loadAll().then(() => cur && docs[cur.path] && render($("#view"), docs[cur.path].text, cur.path, true)).catch(() => {});
+  }
+});
+
+/* ---------------- khởi động ---------------- */
+async function start() {
+  $("#login").classList.add("hidden"); $("#app").classList.remove("hidden");
+  $("#repoName").textContent = auth.repo;
+  try { await loadAll(); window._last = Date.now(); }
+  catch (e) {
+    if (e.status === 401 || e.status === 404) { store(null); showLogin(e.message); return; }
+    $("#view").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return;
+  }
+  const want = decodeURIComponent(location.hash.slice(1));
+  go(docs[want] ? want : (docs["projects/dunmorn/README.md"] ? "projects/dunmorn/README.md" : Object.keys(docs)[0]));
+}
+function showLogin(err = "") {
+  $("#app").classList.add("hidden"); $("#login").classList.remove("hidden");
+  $("#loginErr").textContent = err; $("#token").focus();
+}
+$("#loginForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const token = $("#token").value.trim(), repo = $("#repo").value.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\/$/, "");
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) { $("#loginErr").textContent = "Repo phải có dạng chủ/tên, ví dụ virtualman209/vm-projects."; return; }
+  auth = {token, repo}; store(auth); start();
+});
+$("#token").addEventListener("input", () => $("#loginErr").textContent = "");
+
+auth = loadAuth();
+auth ? start() : showLogin();
+</script>
+</body>
+</html>
