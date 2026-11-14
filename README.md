@@ -18,6 +18,8 @@ Mỗi thiết bị (máy tính, điện thoại) dán token một lần. Có th�
 - Mục lục theo dự án, tìm kiếm trong toàn bộ nội dung.
 - Bấm ô vuông để tick checklist: lưu thẳng lên GitHub, có thanh tiến độ.
 - Sửa Markdown với xem trước song song, Ctrl+S để lưu. Tạo ghi chú mới.
+- Thanh công cụ soạn thảo: tiêu đề, đậm, nghiêng, gạch ngang, mã, liên kết, danh sách, checklist, trích dẫn, khối mã, bảng. Phím tắt Ctrl+B, Ctrl+I, Ctrl+K; Enter trong danh sách tự tạo dòng mới.
+- Chèn ảnh: nút **🖼 Ảnh**, dán (Ctrl+V) hoặc kéo thả vào ô soạn thảo. Ảnh PNG / JPG / GIF / WebP (tối đa 25 MB) được commit thẳng vào thư mục `assets/` của repo private và chèn sẵn đường dẫn. Ảnh hiển thị bằng token của bạn, người khác không xem được.
 - Nút **Nhờ Claude**: copy câu lệnh nhờ Claude, kèm file đang mở.
 - Mỗi lần lưu là một commit trên `vm-projects`, nên không cần nút đồng bộ. Nếu file vừa bị sửa ở nơi khác (ví dụ Claude vừa cập nhật), trang báo và tải bản mới, không ghi đè.
 

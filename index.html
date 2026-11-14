@@ -89,8 +89,13 @@ article li.task.done{color:var(--muted)}
 article .flash{animation:flash 1.6s ease-out}
 @keyframes flash{from{background:var(--warn-soft)}to{background:transparent}}
 .empty{color:var(--muted);text-align:center;padding:80px 20px}
-.editor{display:grid;grid-template-columns:1fr 1fr;flex:1;min-height:0}
-.editor textarea{border:0;border-right:1px solid var(--line);resize:none;padding:20px;font:14px/1.6 var(--mono);background:var(--panel);color:var(--ink);outline:none}
+article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--line);cursor:zoom-in;display:block;margin:12px 0;min-height:24px;background:var(--bg)}
+.editor{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(0,1fr);flex:1;min-height:0}
+.toolbar{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+.toolbar button{min-width:34px;padding:4px 8px;font-size:13px;line-height:1.4}
+.toolbar .sep{width:1px;height:20px;background:var(--line);margin:0 6px}
+.editor textarea{border:0;border-right:1px solid var(--line);resize:none;padding:20px;font:14px/1.6 var(--mono);background:var(--panel);color:var(--ink);outline:none;min-height:0}
+.editor textarea.drag{outline:2px dashed var(--accent);outline-offset:-8px}
 .editor .scroll{background:var(--bg)}
 .toast{position:fixed;right:16px;bottom:16px;left:auto;max-width:420px;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:8px;padding:12px 16px;box-shadow:0 8px 30px rgba(0,0,0,.15);white-space:pre-wrap;font-size:14px;z-index:9}
 .toast.err{border-left-color:var(--danger)}
@@ -101,6 +106,7 @@ article .flash{animation:flash 1.6s ease-out}
   .menu{display:inline-block}
   article{padding:20px 18px 80px}
   .editor{grid-template-columns:1fr}.editor .scroll{display:none}
+  .toolbar{flex-wrap:nowrap;overflow-x:auto;padding:6px 10px}.toolbar button,.toolbar .sep{flex:none}
   .progress .track{width:60px}
   .toast{left:16px}
 }
@@ -154,6 +160,29 @@ article .flash{animation:flash 1.6s ease-out}
     </div>
     <div class="scroll" id="viewScroll"><article id="view"><div class="empty">Đang tải…</div></article></div>
     <div class="editor hidden" id="editor">
+      <div class="toolbar" id="toolbar" role="toolbar" aria-label="Định dạng văn bản">
+        <button type="button" data-act="h1" title="Tiêu đề lớn">H1</button>
+        <button type="button" data-act="h2" title="Tiêu đề vừa">H2</button>
+        <button type="button" data-act="h3" title="Tiêu đề nhỏ">H3</button>
+        <span class="sep"></span>
+        <button type="button" data-act="bold" title="Chữ đậm (Ctrl+B)"><b>B</b></button>
+        <button type="button" data-act="italic" title="Chữ nghiêng (Ctrl+I)"><i>I</i></button>
+        <button type="button" data-act="strike" title="Gạch ngang chữ"><s>S</s></button>
+        <button type="button" data-act="code" title="Mã trong dòng">&lt;/&gt;</button>
+        <button type="button" data-act="link" title="Chèn liên kết (Ctrl+K)">Liên kết</button>
+        <span class="sep"></span>
+        <button type="button" data-act="ul" title="Danh sách chấm">• Danh sách</button>
+        <button type="button" data-act="ol" title="Danh sách đánh số">1. Số</button>
+        <button type="button" data-act="task" title="Danh sách việc cần làm (ô tick)">☑ Việc</button>
+        <button type="button" data-act="quote" title="Trích dẫn">❝ Trích</button>
+        <span class="sep"></span>
+        <button type="button" data-act="codeblock" title="Khối mã">Khối mã</button>
+        <button type="button" data-act="table" title="Chèn bảng">Bảng</button>
+        <button type="button" data-act="hr" title="Đường kẻ ngang">―</button>
+        <span class="sep"></span>
+        <button type="button" data-act="image" title="Chèn ảnh (cũng dán Ctrl+V hoặc kéo thả vào ô soạn thảo). Ảnh được lưu lên GitHub ngay.">🖼 Ảnh</button>
+        <input type="file" id="imgPick" accept="image/png,image/jpeg,image/gif,image/webp" multiple class="hidden">
+      </div>
       <textarea id="src" spellcheck="false" aria-label="Nội dung Markdown"></textarea>
       <div class="scroll"><article id="preview"></article></div>
     </div>
@@ -296,6 +325,15 @@ function render(el, text, path, interactive) {
       a.href = "#" + target; a.onclick = e => { e.preventDefault(); go(target); };
     }
   });
+  el.querySelectorAll("img").forEach(img => {        // ảnh trong repo private: tải bằng token rồi hiện qua blob
+    const s = img.getAttribute("src") || "";
+    if (!s || /^(https?:|data:|blob:|\/)/i.test(s)) return;
+    let p = s; try { p = decodeURI(s); } catch {}
+    const full = resolve(path, p);
+    img.removeAttribute("src"); img.alt = img.alt || full;
+    imgBlob(full).then(u => { img.src = u; img.onclick = () => window.open(u, "_blank", "noopener"); })
+      .catch(() => { const m = document.createElement("em"); m.textContent = `[không tải được ảnh ${full}]`; img.replaceWith(m); });
+  });
   if (interactive) {
     const total = boxes.length, done = [...boxes].filter(b => b.checked).length;
     $("#progress").classList.toggle("hidden", !total);
@@ -375,6 +413,176 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && editing) $("#cancelBtn").click();
 });
 window.addEventListener("beforeunload", e => { if (editing && dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+/* ---------------- ảnh trong repo private ---------------- */
+const IMG_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"};
+const MAX_IMG = 25 * 1024 * 1024;
+const imgCache = new Map();                                       // đường dẫn → Promise<blob URL>
+function imgBlob(path) {
+  if (!imgCache.has(path)) imgCache.set(path, (async () => {
+    const r = await fetch(API + `/repos/${auth.repo}/contents/${encPath(path)}?ref=${encodeURIComponent(branch)}`, {cache: "no-store", headers: {
+      "Authorization": "Bearer " + auth.token, "Accept": "application/vnd.github.raw+json", "X-GitHub-Api-Version": "2022-11-28"}});
+    if (!r.ok) { imgCache.delete(path); throw new Error(r.statusText); }
+    const ext = (path.match(/\.\w+$/) || [""])[0].toLowerCase();
+    return URL.createObjectURL(new Blob([await r.arrayBuffer()], {type: IMG_MIME[ext] || "application/octet-stream"}));
+  })());
+  return imgCache.get(path);
+}
+function sniffExt(h) {                                            // nhận dạng ảnh theo nội dung, không tin đuôi file
+  const s = (a, b) => [...h.slice(a, b)].map(c => String.fromCharCode(c)).join("");
+  if (h[0] === 0x89 && s(1, 4) === "PNG") return ".png";
+  if (h[0] === 0xff && h[1] === 0xd8 && h[2] === 0xff) return ".jpg";
+  if (s(0, 3) === "GIF") return ".gif";
+  if (s(0, 4) === "RIFF" && s(8, 12) === "WEBP") return ".webp";
+  return null;
+}
+function slugify(name) {
+  const base = (name || "").replace(/\.[^.]*$/, "").replace(/đ/g, "d").replace(/Đ/g, "D").normalize("NFKD").replace(/[^\x00-\x7f]/g, "");
+  return base.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "anh";
+}
+function bufB64(buf) { const u = new Uint8Array(buf); let bin = ""; for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(bin); }
+async function putImage(file) {                                   // upload = một commit trên repo, ảnh nằm trong assets/
+  const buf = await file.arrayBuffer(), ext = sniffExt(new Uint8Array(buf.slice(0, 12)));
+  if (!ext) throw new Error("Chỉ nhận ảnh PNG, JPG, GIF hoặc WebP");
+  if (buf.byteLength > MAX_IMG) throw new Error("Ảnh phải nhỏ hơn 25 MB");
+  const d = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+  const name = `${d.slice(0, 8)}-${d.slice(8)}-${slugify(file.name)}-${Math.random().toString(36).slice(2, 6)}${ext}`, path = "assets/" + name;
+  await gh(`/repos/${auth.repo}/contents/${encPath(path)}`, {method: "PUT", body: JSON.stringify({message: `Thêm ảnh ${name} từ web`, content: bufB64(buf), branch})});
+  imgCache.set(path, Promise.resolve(URL.createObjectURL(new Blob([buf], {type: IMG_MIME[ext]}))));
+  return path;
+}
+
+/* ---------------- công cụ soạn thảo ---------------- */
+const src = $("#src");
+function replaceRange(start, end, text, selStart, selEnd) {      // execCommand giữ được Ctrl+Z
+  src.focus(); src.setSelectionRange(start, end);
+  const ok = text ? document.execCommand("insertText", false, text) : document.execCommand("delete");
+  if (!ok) { src.setRangeText(text, start, end, "end"); src.dispatchEvent(new Event("input")); }
+  const a = selStart ?? start + text.length;
+  src.setSelectionRange(a, selEnd ?? a);
+}
+function wrap(b, a, placeholder) {
+  const v = src.value, s = src.selectionStart, e = src.selectionEnd;
+  if (s >= b.length && v.slice(s - b.length, s) === b && v.slice(e, e + a.length) === a)   // đang bọc sẵn → bỏ
+    return replaceRange(s - b.length, e + a.length, v.slice(s, e), s - b.length, e - b.length);
+  const sel = v.slice(s, e) || placeholder;
+  replaceRange(s, e, b + sel + a, s + b.length, s + b.length + sel.length);
+}
+const MARK = {
+  h1: {re: /^#\s+/, mk: () => "# "}, h2: {re: /^##\s+/, mk: () => "## "}, h3: {re: /^###\s+/, mk: () => "### "},
+  ul: {re: /^[-*+]\s+(?!\[[ xX]\])/, mk: () => "- "}, ol: {re: /^\d+[.)]\s+/, mk: i => `${i + 1}. `},
+  task: {re: /^[-*+]\s+\[[ xX]\]\s+/, mk: () => "- [ ] "}, quote: {re: /^>\s?/, mk: () => "> "},
+};
+const ANY_MARK = /^(?:#{1,6}\s+|[-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+[.)]\s+|>\s?)/;
+function lineRange() {
+  const v = src.value, s = src.selectionStart;
+  let e = src.selectionEnd; if (e > s && v[e - 1] === "\n") e--;
+  const a = v.lastIndexOf("\n", s - 1) + 1; let b = v.indexOf("\n", e); if (b < 0) b = v.length;
+  return [a, b];
+}
+function prefixLines(kind) {
+  const [a, b] = lineRange(), k = MARK[kind], collapsed = src.selectionStart === src.selectionEnd;
+  const lines = src.value.slice(a, b).split("\n");
+  const idx = lines.map((l, i) => l.trim() ? i : -1).filter(i => i >= 0);
+  const use = idx.length ? idx : (lines.length === 1 ? [0] : []);
+  const parts = lines.map(l => /^(\s*)(.*)$/.exec(l).slice(1));    // [thụt lề, nội dung]
+  const allHave = use.length && use.every(i => k.re.test(parts[i][1]));
+  let n = 0;
+  const out = lines.map((l, i) => {
+    if (!use.includes(i)) return l;
+    const [ind, rest] = parts[i], bare = rest.replace(ANY_MARK, "");
+    return ind + (allHave ? bare : k.mk(n++) + bare);
+  }).join("\n");
+  replaceRange(a, b, out, collapsed ? a + out.length : a, a + out.length);
+}
+function insertBlock(text, selFrom, selTo) {                       // chèn thành một đoạn riêng
+  const v = src.value, s = src.selectionStart, e = src.selectionEnd, h = v.slice(0, s), t = v.slice(e);
+  const pre = !h ? "" : h.endsWith("\n\n") ? "" : h.endsWith("\n") ? "\n" : "\n\n";
+  const post = !t ? "\n" : t.startsWith("\n\n") ? "" : t.startsWith("\n") ? "\n" : "\n\n";
+  replaceRange(s, e, pre + text + post, s + pre.length + (selFrom ?? text.length), s + pre.length + (selTo ?? selFrom ?? text.length));
+}
+function insertLink() {
+  const v = src.value, s = src.selectionStart, e = src.selectionEnd, sel = v.slice(s, e);
+  if (/^https?:\/\/\S+$/.test(sel)) return replaceRange(s, e, `[liên kết](${sel})`, s + 1, s + 9);
+  const t = sel || "văn bản";
+  replaceRange(s, e, `[${t}](https://)`, s + t.length + 3, s + t.length + 11);
+}
+function insertCodeBlock() {
+  const sel = src.value.slice(src.selectionStart, src.selectionEnd) || "mã ở đây";
+  insertBlock("```\n" + sel + "\n```", 4, 4 + sel.length);
+}
+const ACTS = {
+  h1: () => prefixLines("h1"), h2: () => prefixLines("h2"), h3: () => prefixLines("h3"),
+  bold: () => wrap("**", "**", "chữ đậm"), italic: () => wrap("_", "_", "chữ nghiêng"),
+  strike: () => wrap("~~", "~~", "chữ gạch"), code: () => wrap("`", "`", "mã"), link: insertLink,
+  ul: () => prefixLines("ul"), ol: () => prefixLines("ol"), task: () => prefixLines("task"), quote: () => prefixLines("quote"),
+  codeblock: insertCodeBlock,
+  table: () => insertBlock("| Cột 1 | Cột 2 | Cột 3 |\n| --- | --- | --- |\n|  |  |  |", 2, 7),
+  hr: () => insertBlock("---"),
+  image: () => $("#imgPick").click(),
+};
+$("#toolbar").addEventListener("mousedown", e => { if (e.target.closest("button")) e.preventDefault(); });   // giữ vùng chọn
+$("#toolbar").addEventListener("click", e => { const b = e.target.closest("button[data-act]"); if (b) ACTS[b.dataset.act](); });
+
+src.addEventListener("keydown", e => {
+  if (e.isComposing) return;
+  const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+  if (mod && !e.shiftKey && !e.altKey && k.length === 1 && "bik".includes(k)) {
+    e.preventDefault(); ({b: ACTS.bold, i: ACTS.italic, k: ACTS.link})[k](); return;
+  }
+  if (mod || e.altKey) return;
+  const v = src.value, s = src.selectionStart;
+  if (e.key === "Enter" && !e.shiftKey && s === src.selectionEnd) {         // Enter trong danh sách → dòng mới cùng kiểu
+    const a = v.lastIndexOf("\n", s - 1) + 1, m = /^(\s*)([-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+[.)]\s+|>\s?)/.exec(v.slice(a, s));
+    if (!m) return;
+    let end = v.indexOf("\n", s); if (end < 0) end = v.length;
+    e.preventDefault();
+    if (!v.slice(a + m[0].length, end).trim()) return replaceRange(a, end, "");     // dòng rỗng → kết thúc danh sách
+    let mark = m[2];
+    if (/\[[ xX]\]/.test(mark)) mark = mark.replace(/\[[ xX]\]/, "[ ]");
+    else if (/^\d/.test(mark)) mark = mark.replace(/^\d+/, d => +d + 1);
+    replaceRange(s, s, "\n" + m[1] + mark);
+  } else if (e.key === "Tab") {                                                 // Tab / Shift+Tab thụt lề danh sách
+    const [a, b] = lineRange(), lines = v.slice(a, b).split("\n");
+    if (!lines.every(l => /^\s*(?:[-*+]|\d+[.)])\s/.test(l))) return;
+    e.preventDefault();
+    const out = lines.map(l => e.shiftKey ? l.replace(/^( {1,2}|\t)/, "") : "  " + l).join("\n");
+    replaceRange(a, b, out, a, a + out.length);
+  }
+});
+
+/* ---------------- ảnh: chọn file, dán, kéo thả ---------------- */
+function relTo(from, to) {                                         // từ file đang mở đến assets/…
+  const up = from.split("/").slice(0, -1).map(() => "..").join("/");
+  return (up ? up + "/" : "") + to;
+}
+async function uploadImages(fileList) {
+  const imgs = [...fileList].filter(f => /^image\//.test(f.type));
+  if (!imgs.length) { toast("Chỉ nhận ảnh PNG, JPG, GIF hoặc WebP.", true); return; }
+  const md = [];
+  for (const [i, f] of imgs.entries()) {
+    toast(`Đang tải ảnh ${i + 1}/${imgs.length} lên GitHub…`, false, 30000);
+    try {
+      const path = await putImage(f);
+      const alt = (f.name || "").replace(/\.[^.]+$/, "").replace(/^image$/i, "").replace(/[\[\]]/g, "") || "ảnh";
+      md.push(`![${alt}](${relTo(cur.path, path)})`);
+    } catch (e) { toast(`Không tải được ${f.name || "ảnh"}: ${e.message}`, true, 6000); }
+  }
+  if (!md.length) return;
+  insertBlock(md.join("\n\n"));
+  toast(md.length > 1 ? `Đã chèn ${md.length} ảnh (đã lưu lên GitHub).` : "Đã chèn ảnh (đã lưu lên GitHub). Nhớ bấm Lưu để giữ đoạn văn.");
+}
+$("#imgPick").addEventListener("change", e => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) uploadImages(fs); });
+src.addEventListener("paste", e => {
+  const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith("image/"));
+  if (files.length && !e.clipboardData.getData("text/plain")) { e.preventDefault(); uploadImages(files); }
+});
+src.addEventListener("dragover", e => { if ([...(e.dataTransfer?.types || [])].includes("Files")) { e.preventDefault(); src.classList.add("drag"); } });
+src.addEventListener("dragleave", () => src.classList.remove("drag"));
+src.addEventListener("drop", e => {
+  src.classList.remove("drag");
+  if (e.dataTransfer?.files?.length) { e.preventDefault(); uploadImages(e.dataTransfer.files); }
+});
 
 $("#newBtn").onclick = async () => {
   let p = prompt("Tên ghi chú mới (có thể kèm thư mục, ví dụ: notes/y-tuong-boss):", "notes/");
