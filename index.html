@@ -336,7 +336,7 @@ function render(el, text, path, interactive) {
     imgBlob(full).then(u => { img.src = u; img.onclick = () => window.open(u, "_blank", "noopener"); })
       .catch(() => { const m = document.createElement("em"); m.textContent = `[không tải được ảnh ${full}]`; img.replaceWith(m); });
   });
-  VMBoard.decorate(el);                               // hạn 📅 và #doing hiện thành nhãn
+  VMBoard.decorate(el, {path, text, lines, interactive});                               // hạn 📅 và #doing hiện thành nhãn
   if (interactive) {
     const total = boxes.length, done = [...boxes].filter(b => b.checked).length;
     $("#progress").classList.toggle("hidden", !total);
@@ -613,6 +613,7 @@ $("#logoutBtn").onclick = () => { if (confirm("Xoá token khỏi thiết bị n�
 $("#menuBtn").onclick = () => $("#app").classList.toggle("nav-open");
 
 /* ---------------- bảng việc: đọc / ghi checklist qua GitHub API ---------------- */
+window.rerenderDoc = () => { if (!editing) { if (cur && docs[cur.path]) render($("#view"), docs[cur.path].text, cur.path, true); } };
 window.boardAdapter = {
   async list() { await loadAll(); return Object.values(docs); },
   update(path, i, expected, line, message) {            // đọc bản mới nhất, chỉ đổi đúng một dòng, commit lên GitHub
@@ -620,7 +621,7 @@ window.boardAdapter = {
       const d = docs[path]; if (!d) throw new Error("Không thấy file " + path);
       const ls = d.text.split("\n");
       if (ls[i] !== expected) throw new Error("Dòng này vừa bị đổi ở nơi khác. Bấm ↻ Tải lại để lấy bản mới.");
-      ls[i] = line; const text = ls.join("\n");
+      if (line === null) ls.splice(i, 1); else ls[i] = line; const text = ls.join("\n");
       d.sha = await commit(path, text, d.sha, message); d.text = text;
     });
     saving = job.catch(() => {});

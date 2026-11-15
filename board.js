@@ -23,6 +23,7 @@ const today = () => ymd(new Date());
 const addDays = (s, n) => { const [y, m, d] = s.split("-").map(Number); return ymd(new Date(y, m - 1, d + n)); };
 const diff = (a, b) => { const u = s => Date.UTC(...s.split("-").map((x, i) => i === 1 ? x - 1 : +x)); return Math.round((u(b) - u(a)) / 864e5); };
 const fmt = s => { const [y, m, d] = s.split("-"); return `${d}/${m}` + (+y !== new Date().getFullYear() ? "/" + y : ""); };
+const fmtS = s => { const [y, m, d] = s.split("-"); return `${+d}/${+m}/${y.slice(2)}`; };
 function dueClass(due, done) {
   if (!due || done) return "";
   const t = today(); return due < t ? "bad" : due <= addDays(t, 7) ? "soon" : "";
@@ -63,33 +64,38 @@ function parseDocs(docs) {
 }
 
 /* ---------------- trạng thái ---------------- */
-const S = {tasks: [], view: "kanban", file: "", phase: "", prio: "", month: new Date(), sel: today(), moreDone: false, open: null};
+const S = {tasks: [], doc: null, adding: null, view: "kanban", file: "", phase: "", prio: "", month: new Date(), sel: today(), moreDone: false, open: null};
 S.month = new Date(S.month.getFullYear(), S.month.getMonth(), 1);
 const A = () => window.boardAdapter;
 const canEdit = () => typeof canWrite === "undefined" || canWrite;
-const byKey = k => S.tasks.find(t => t.key === k);
+const byKey = k => (S.doc && S.doc.tasks.find(t => t.key === k)) || S.tasks.find(t => t.key === k);
+const boardHidden = () => { const b = $("#board"); return !b || b.classList.contains("hidden"); };
+function refresh() { if (boardHidden()) { window.rerenderDoc && window.rerenderDoc(); } else load(); }
 const cmp = (a, b) => rank(a.prio) - rank(b.prio) || ((a.rs || "9999") < (b.rs || "9999") ? -1 : (a.rs || "9999") > (b.rs || "9999") ? 1 : a.order - b.order);
 const visible = () => S.tasks.filter(t => (!S.file || t.path === S.file) && (!S.phase || t.pk === S.phase) && (!S.prio || (S.prio === "none" ? !t.prio : t.prio === S.prio)));
 
 let chain = Promise.resolve();
-function buildLine(t, status, start, due, prio) {
+function buildLine(t, status, start, due, prio, title = t.title) {
   if (start && start === due) start = "";                             // 1 ngày thì không cần ngày bắt đầu
-  return `${t.indent}${t.bullet} [${status === "done" ? "x" : " "}] ${t.title}${start ? " 🛫 " + start : ""}${due ? " 📅 " + due : ""}${prio ? " " + PRIO[prio].emoji : ""}${status === "doing" ? " #doing" : ""}${t.cr ? "\r" : ""}`;
+  return `${t.indent}${t.bullet} [${status === "done" ? "x" : " "}] ${title}${start ? " 🛫 " + start : ""}${due ? " 📅 " + due : ""}${prio ? " " + PRIO[prio].emoji : ""}${status === "doing" ? " #doing" : ""}${t.cr ? "\r" : ""}`;
 }
 function change(t, patch) {                                          // patch: {status?, start?, due?, prio?}
   if (!canEdit()) { toast("Token chỉ có quyền đọc, không sửa được.", true); return Promise.resolve(); }
   const status = patch.status ?? statusOf(t), start = "start" in patch ? patch.start : t.start, due = "due" in patch ? patch.due : t.due, prio = "prio" in patch ? patch.prio : t.prio;
-  const line = buildLine(t, status, start, due, prio);
+  const title = "title" in patch ? patch.title.trim() : t.title;
+  if (!title) return Promise.resolve();
+  const line = buildLine(t, status, start, due, prio, title);
   if (line === t.raw) return Promise.resolve();
   const bits = [];
   if (status !== statusOf(t)) bits.push(VERB[status]);
   if (start !== t.start || due !== t.due) bits.push("ngày " + (start ? fmt(start) + " → " : "") + (due ? fmt(due) : "bỏ"));
+  if (title !== t.title) bits.push("đổi tên");
   if (prio !== t.prio) bits.push("ưu tiên " + (prio ? PRIO[prio].name.toLowerCase() : "bỏ"));
   const msg = `${bits.join(", ") || "Sửa"}: ${t.label.slice(0, 60)}`;
   const job = chain.then(async () => {
     await A().update(t.path, t.line, t.raw, line, msg);
-    t.raw = line; t.done = status === "done"; t.doing = status === "doing"; t.start = start; t.due = due; t.prio = prio; setRange(t);
-    draw();
+    t.raw = line; t.done = status === "done"; t.doing = status === "doing"; t.start = start; t.due = due; t.prio = prio; t.title = title; t.label = clean(title); setRange(t);
+    draw(); if (boardHidden()) window.rerenderDoc && window.rerenderDoc();
   });
   chain = job.catch(() => {});
   return job.catch(async e => { toast(e.message, true, 7000); await load(); });
@@ -215,13 +221,14 @@ function draw() {
 /* ---------------- hộp chỉnh sửa một việc ---------------- */
 function dlg() {
   let d = $("#bDlg");
-  if (!d) { d = document.createElement("dialog"); d.id = "bDlg"; document.body.appendChild(d); d.addEventListener("close", () => { S.open = null; }); }
+  if (!d) { d = document.createElement("dialog"); d.id = "bDlg"; document.body.appendChild(d); d.addEventListener("close", () => { S.open = null; S.adding = null; }); }
   return d;
 }
 function renderDialog() {
-  const t = byKey(S.open), d = dlg(); if (!t) { if (d.open) d.close(); return; }
+  const d = dlg(); if (S.adding) return renderAdd(d);
+  const t = byKey(S.open); if (!t) { if (d.open) d.close(); return; }
   const st = statusOf(t), ro = canEdit() ? "" : " disabled", n = days(t);
-  d.innerHTML = `<div class="dl"><h3>${esc(t.label)}</h3><div class="c-meta">${esc(t.file)} › ${esc(t.phase)}${t.section ? " › " + esc(t.section) : ""}</div>
+  d.innerHTML = `<div class="dl"><input class="dl-title" data-act="dtitle" value="${esc(t.title)}" maxlength="300" aria-label="Nội dung việc"${ro}><div class="c-meta">${esc(t.file)} › ${esc(t.phase)}${t.section ? " › " + esc(t.section) : ""}</div>
     <div class="lbl">Trạng thái</div>
     <div class="seg full">${STATUS.map(([k, nm]) => `<button data-act="dst" data-st="${k}" class="${st === k ? "on" : ""}"${ro}>${nm}</button>`).join("")}</div>
     <div class="lbl">Mức ưu tiên</div>
@@ -233,8 +240,41 @@ function renderDialog() {
       <label>Kéo dài (ngày)<input type="number" min="1" max="999" data-act="ddays" value="${n || ""}" placeholder="—"${ro}></label>
     </div>
     <div class="dl-note">${t.rs ? esc(rangeText(t)) : "Chưa có ngày nào."} <button class="link" data-act="dclear"${ro}>Xoá ngày</button></div>
-    <div class="dl-foot"><button data-act="ddoc">Mở trong tài liệu ↗</button><button class="primary" data-act="dclose">Đóng</button></div></div>`;
+    <div class="dl-foot"><button class="danger" data-act="ddel"${ro}>Xoá việc</button>${boardHidden() ? "" : `<button data-act="ddoc">Mở trong tài liệu ↗</button>`}<button class="primary" data-act="dclose">Đóng</button></div></div>`;
   if (!d.open) d.showModal();
+}
+function renderAdd(d) {
+  const a = S.adding;
+  d.innerHTML = `<div class="dl"><h3>Thêm task mới</h3><div class="c-meta">${esc(a.where)}</div>
+    <div class="lbl">Nội dung</div><input class="dl-title" data-act="atitle" placeholder="Việc cần làm…" value="${esc(a.title)}" maxlength="300">
+    <div class="lbl">Mức ưu tiên</div>
+    <div class="seg full prio">${[["", "Chưa gán"], ["high", "🔴 Cao"], ["med", "🟡 Vừa"], ["low", "🔵 Thấp"]].map(([k, nm]) => `<button data-act="aprio" data-p="${k}" class="${pcls(k)}${a.prio === k ? " on" : ""}">${nm}</button>`).join("")}</div>
+    <div class="lbl">Thời gian (không bắt buộc)</div>
+    <div class="dl-grid two"><label>Bắt đầu<input type="date" data-act="adstart" value="${a.start}"></label><label>Kết thúc (hạn chót)<input type="date" data-act="adend" value="${a.due}"></label></div>
+    <div class="dl-foot"><button data-act="acancel">Huỷ</button><button class="primary" data-act="aok">Thêm</button></div></div>`;
+  if (!d.open) d.showModal();
+  const i = d.querySelector('[data-act="atitle"]'); if (i && !i.value) i.focus();
+}
+function openAdd(after, like) {
+  const l = byKey(like || after); if (!l || !byKey(after)) return;
+  if (!canEdit()) { toast("Token chỉ có quyền đọc, không sửa được.", true); return; }
+  S.open = null; S.adding = {after, like: l.key, title: "", prio: "", start: "", due: "", where: l.phase + (l.section ? " › " + l.section : "")};
+  renderAdd(dlg());
+}
+async function addSubmit() {
+  const a = S.adding, title = a.title.trim(), after = byKey(a.after), like = byKey(a.like) || after;
+  if (!title) { toast("Hãy nhập nội dung việc.", true); return; }
+  let {start, due} = a; if (start && due && start > due) [start, due] = [due, start];
+  const nl = buildLine(like, "todo", start, due, a.prio, title);
+  const job = chain.then(() => A().update(after.path, after.line, after.raw, after.raw + "\n" + nl, "Thêm việc: " + title.slice(0, 60)));
+  chain = job.catch(() => {});
+  try { await job; S.adding = null; dlg().close(); refresh(); } catch (e) { toast(e.message, true, 7000); }
+}
+async function removeTask(t) {
+  if (!confirm("Xoá việc này khỏi file?\n\n" + t.label)) return;
+  const job = chain.then(() => A().update(t.path, t.line, t.raw, null, "Xoá việc: " + t.label.slice(0, 60)));
+  chain = job.catch(() => {});
+  try { await job; S.open = null; dlg().close(); refresh(); } catch (e) { toast(e.message, true, 7000); }
 }
 function dialogDates(t, el) {                                         // đổi ngày bắt đầu / kết thúc / số ngày
   const v = el.value, k = el.dataset.act;
@@ -301,7 +341,16 @@ function bind() {
     const t = byKey(drag); drag = null; if (!t) return;
     if (col) change(t, {status: col.dataset.col}); else { const k = dayAt(wk, e.clientX); S.sel = k; moveTo(t, k); }
   });
+  dlg().addEventListener("input", e => { if (S.adding && e.target.dataset.act === "atitle") S.adding.title = e.target.value; });
+  dlg().addEventListener("keydown", e => { if (e.key === "Enter" && S.adding && e.target.dataset.act === "atitle") { e.preventDefault(); S.adding.title = e.target.value; addSubmit(); } });
   dlg().addEventListener("click", e => {
+    if (S.adding) {
+      const b = e.target.closest("[data-act]"), a = b && b.dataset.act;
+      if (a === "acancel") dlg().close(); else if (a === "aok") addSubmit();
+      else if (a === "aprio") { S.adding.prio = b.dataset.p; renderAdd(dlg()); }
+      else if (e.target === dlg()) dlg().close();
+      return;
+    }
     const el = e.target.closest("[data-act]"), t = byKey(S.open); if (!el || !t) { if (e.target === dlg()) dlg().close(); return; }
     const act = el.dataset.act;
     if (act === "dclose") dlg().close();
@@ -309,8 +358,15 @@ function bind() {
     else if (act === "dprio") change(t, {prio: el.dataset.p});
     else if (act === "dclear") change(t, {start: "", due: ""});
     else if (act === "ddoc") { dlg().close(); openDoc(t); }
+    else if (act === "ddel") removeTask(t);
   });
-  dlg().addEventListener("change", e => { const t = byKey(S.open); if (t && /^d(start|end|days)$/.test(e.target.dataset.act || "")) dialogDates(t, e.target); });
+  dlg().addEventListener("change", e => {
+    const k = e.target.dataset.act || "";
+    if (S.adding) { if (k === "adstart") S.adding.start = e.target.value; else if (k === "adend") S.adding.due = e.target.value; else if (k === "atitle") S.adding.title = e.target.value; return; }
+    const t = byKey(S.open); if (!t) return;
+    if (k === "dtitle") { if (e.target.value.trim()) change(t, {title: e.target.value}); else e.target.value = t.title; }
+    else if (/^d(start|end|days)$/.test(k)) dialogDates(t, e.target);
+  });
 }
 function openDoc(t) { hide(); window.go(t.path, t.label); }
 
@@ -326,6 +382,7 @@ async function load() {
   draw();
 }
 async function show() {
+  S.doc = null;
   if (editing && dirty && !confirm("Bạn có thay đổi chưa lưu. Bỏ qua?")) return;
   setEditing(false); cur = null; drawNav();
   $("#viewScroll").classList.add("hidden"); $("#editBtn").classList.add("hidden"); $("#progress").classList.add("hidden");
@@ -336,26 +393,44 @@ async function show() {
 }
 function hide() { $("#board").classList.add("hidden"); $("#boardBtn").classList.remove("active"); if (dlg().open) dlg().close(); }
 
-/* ---------------- hiện ngày / ưu tiên / trạng thái trong tài liệu ---------------- */
-function decorate(el) {
-  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), nodes = [];
+/* ---------------- trong tài liệu: hạn mờ, chấm ưu tiên, bấm vào việc để sửa, dòng "Thêm task mới" ---------------- */
+function decorate(el, ctx) {
+  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), nodes = [], t0 = today(), soon = addDays(t0, 14);
   while (w.nextNode()) nodes.push(w.currentNode);
   for (const n of nodes) {
     if (!/[🛫📅🔴🟡🔵]|#doing\b/i.test(n.nodeValue) || n.parentElement.closest("pre,code")) continue;
     const done = !!n.parentElement.closest("li.task.done"), frag = document.createDocumentFragment();
-    const re = /\s*(?:🛫\s*(\d{4}-\d{2}-\d{2})|📅\s*(\d{4}-\d{2}-\d{2})|(🔴|🟡|🔵)|#doing\b)/gi;
+    const re = /\s*(?:🛫\s*\d{4}-\d{2}-\d{2}|📅\s*(\d{4}-\d{2}-\d{2})|(🔴|🟡|🔵)|#doing\b)/gi;
     let last = 0, m; const v = n.nodeValue;
     while ((m = re.exec(v))) {
-      frag.append(v.slice(last, m.index), " ");
-      const s = document.createElement("span");
-      if (m[1]) { s.className = "chip due"; s.textContent = "🛫 " + fmt(m[1]); }
-      else if (m[2]) { s.className = "chip due " + dueClass(m[2], done); s.textContent = "📅 " + fmt(m[2]); }
-      else if (m[3]) { const p = EMOJI_PRIO[m[3]]; s.className = "chip prio " + pcls(p); s.textContent = "Ưu tiên " + PRIO[p].name.toLowerCase(); }
+      frag.append(v.slice(last, m.index)); last = re.lastIndex;
+      if (m[0].includes("🛫")) continue;                              // ngày bắt đầu: không hiện
+      const s = document.createElement("span"); frag.append(" ");
+      if (m[1]) { s.className = "chip dl" + (!done && m[1] <= soon ? " bad" : ""); s.textContent = fmtS(m[1]); s.title = "Hạn chót " + fmt(m[1]); }
+      else if (m[2]) { const p = EMOJI_PRIO[m[2]]; s.className = "pdot " + pcls(p); s.title = "Ưu tiên " + PRIO[p].name.toLowerCase(); }
       else { s.className = "chip doing"; s.textContent = "Đang làm"; }
-      frag.append(s); last = re.lastIndex;
+      frag.append(s);
     }
     frag.append(v.slice(last)); n.replaceWith(frag);
   }
+  el.onclick = null;
+  if (!ctx || !ctx.interactive) return;
+  const tasks = parseDocs([{path: ctx.path, title: ctx.path, text: ctx.text}]);
+  S.doc = {path: ctx.path, tasks};
+  const items = [...el.querySelectorAll("li.task")];
+  items.forEach((li, i) => { const t = tasks.find(x => x.line === ctx.lines[i]); if (t) li.dataset.k = t.key; });
+  if (canEdit()) new Set(items.map(li => li.parentElement)).forEach(ul => {
+    const mine = [...ul.querySelectorAll("li.task")].filter(li => li.dataset.k), first = mine.find(li => li.parentElement === ul);
+    if (!first) return;
+    const add = document.createElement("li"); add.className = "task task-add"; add.dataset.after = mine[mine.length - 1].dataset.k; add.dataset.like = first.dataset.k;
+    add.innerHTML = `<span class="fbox"></span>Thêm task mới`; ul.appendChild(add);
+  });
+  el.onclick = e => {
+    if (e.target.closest("a,input,button") || String(window.getSelection()).length) return;
+    const add = e.target.closest("li.task-add"); if (add) return openAdd(add.dataset.after, add.dataset.like);
+    const li = e.target.closest("li.task"); if (li && li.dataset.k) { S.adding = null; S.open = li.dataset.k; renderDialog(); }
+  };
+  if (S.open && !S.adding && dlg().open) renderDialog();
 }
 
 /* ---------------- giao diện ---------------- */
@@ -443,6 +518,15 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 #boardBtn{margin:0 12px 8px;width:calc(100% - 24px);display:block;text-align:left}
 #boardBtn.active{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
 .chip.due{margin-left:2px}li.task .chip{vertical-align:1px}
+.chip.dl{background:none;border:0;padding:0 2px;color:var(--muted);opacity:.75;font-size:.85em;font-variant-numeric:tabular-nums}
+.chip.dl.bad{color:var(--bad);opacity:1;font-weight:500}
+.pdot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--c);margin-left:6px}
+article li.task:not(.task-add){cursor:pointer;border-radius:6px}article li.task:not(.task-add):hover{background:var(--accent-soft)}
+article li.task-add{opacity:.45;cursor:pointer;color:var(--muted)}article li.task-add:hover{opacity:.85}
+.fbox{display:inline-block;width:16px;height:16px;margin:0 8px 0 0;vertical-align:-2px;border:2px solid currentColor;border-radius:4px;box-sizing:border-box}
+.dl-title{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:16px;font-weight:500}
+.dl-grid.two{grid-template-columns:1fr 1fr}
+button.danger{color:var(--bad);border-color:transparent;background:none}button.danger:hover{background:var(--bad-soft)}
 @media (max-width:760px){
   .b-top{padding:10px 12px}.b-body{padding:12px 12px 60px}
   .kanban{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:86%;overflow-x:auto;scroll-snap-type:x mandatory;gap:10px}
