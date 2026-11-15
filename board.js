@@ -3,12 +3,13 @@
    Quy ước trên dòng:
      🛫 YYYY-MM-DD  ngày bắt đầu          📅 YYYY-MM-DD  ngày kết thúc (hạn chót)
      🔴 ưu tiên cao  🟡 ưu tiên vừa  🔵 ưu tiên thấp      #doing  đang làm      [x]  xong
+     📊 40%  mức hoàn thành (việc dài hơi, 1–99%; 100% = xong)
    Độ dài = ngày kết thúc − ngày bắt đầu + 1. Chỉ có 📅 thì việc kéo dài 1 ngày.
    Trang chủ phải định nghĩa trước: window.boardAdapter = { list(), update(path, line, expected, newLine, message) } */
 (() => {
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-const START_RE = /\s*🛫\s*(\d{4}-\d{2}-\d{2})/, DUE_RE = /\s*📅\s*(\d{4}-\d{2}-\d{2})/, DOING_RE = /\s*#doing\b/i, PRIO_RE = /\s*(🔴|🟡|🔵)/;
+const START_RE = /\s*🛫\s*(\d{4}-\d{2}-\d{2})/, DUE_RE = /\s*📅\s*(\d{4}-\d{2}-\d{2})/, DOING_RE = /\s*#doing\b/i, PRIO_RE = /\s*(🔴|🟡|🔵)/, PCT_RE = /\s*📊\s*(\d{1,3})\s*%/;
 const TASK_RE = /^(\s*)([-*+])\s+\[([ xX])\]\s+(.*)$/;
 const STATUS = [["todo", "Cần làm"], ["doing", "Đang làm"], ["done", "Xong"]];
 const VERB = {todo: "Mở lại", doing: "Đang làm", done: "Xong"};
@@ -51,11 +52,11 @@ function parseDocs(docs) {
       if (m) { if (m[1] === "#") { h1 = m[2]; h2 = h3 = ""; } else if (m[1] === "##") { h2 = m[2]; h3 = ""; } else h3 = m[2]; return; }
       m = TASK_RE.exec(line); if (!m) return;
       const text = m[4], pm = PRIO_RE.exec(text);
-      const title = text.replace(START_RE, "").replace(DUE_RE, "").replace(PRIO_RE, "").replace(DOING_RE, "").trim();
+      const title = text.replace(START_RE, "").replace(DUE_RE, "").replace(PRIO_RE, "").replace(DOING_RE, "").replace(PCT_RE, "").trim();
       const phase = phaseName(h2 || h1 || d.title);
       const t = {key: d.path + ":" + i, path: d.path, line: i, raw: l, cr, indent: m[1], bullet: m[2],
         done: m[3] !== " ", doing: DOING_RE.test(text), start: (START_RE.exec(text) || [])[1] || "", due: (DUE_RE.exec(text) || [])[1] || "",
-        prio: pm ? EMOJI_PRIO[pm[1]] : "", title, label: clean(title),
+        prio: pm ? EMOJI_PRIO[pm[1]] : "", pct: Math.min(100, +((PCT_RE.exec(text) || [])[1] || 0)), title, label: clean(title),
         file: d.title, phase, section: phaseName(h3), pk: d.path + "|" + phase, order: order++};
       setRange(t); out.push(t);
     });
@@ -75,26 +76,32 @@ const cmp = (a, b) => rank(a.prio) - rank(b.prio) || ((a.rs || "9999") < (b.rs |
 const visible = () => S.tasks.filter(t => (!S.file || t.path === S.file) && (!S.phase || t.pk === S.phase) && (!S.prio || (S.prio === "none" ? !t.prio : t.prio === S.prio)));
 
 let chain = Promise.resolve();
-function buildLine(t, status, start, due, prio, title = t.title) {
+function buildLine(t, status, start, due, prio, title = t.title, pct = 0) {
   if (start && start === due) start = "";                             // 1 ngày thì không cần ngày bắt đầu
-  return `${t.indent}${t.bullet} [${status === "done" ? "x" : " "}] ${title}${start ? " 🛫 " + start : ""}${due ? " 📅 " + due : ""}${prio ? " " + PRIO[prio].emoji : ""}${status === "doing" ? " #doing" : ""}${t.cr ? "\r" : ""}`;
+  const pc = status !== "done" && pct > 0 && pct < 100 ? " 📊 " + pct + "%" : "";
+  return `${t.indent}${t.bullet} [${status === "done" ? "x" : " "}] ${title}${start ? " 🛫 " + start : ""}${due ? " 📅 " + due : ""}${prio ? " " + PRIO[prio].emoji : ""}${pc}${status === "doing" ? " #doing" : ""}${t.cr ? "\r" : ""}`;
 }
 function change(t, patch) {                                          // patch: {status?, start?, due?, prio?}
   if (!canEdit()) { toast("Token chỉ có quyền đọc, không sửa được.", true); return Promise.resolve(); }
-  const status = patch.status ?? statusOf(t), start = "start" in patch ? patch.start : t.start, due = "due" in patch ? patch.due : t.due, prio = "prio" in patch ? patch.prio : t.prio;
+  let pct = "pct" in patch ? Math.max(0, Math.min(100, Math.round(+patch.pct || 0))) : t.pct;
+  let status = patch.status ?? (pct >= 100 ? "done" : "pct" in patch && t.done ? (pct > 0 ? "doing" : "todo") : statusOf(t));
+  if ("pct" in patch && pct > 0 && pct < 100 && status === "todo") status = "doing";
+  if (status === "done" && !("pct" in patch)) pct = 0;
+  const start = "start" in patch ? patch.start : t.start, due = "due" in patch ? patch.due : t.due, prio = "prio" in patch ? patch.prio : t.prio;
   const title = "title" in patch ? patch.title.trim() : t.title;
   if (!title) return Promise.resolve();
-  const line = buildLine(t, status, start, due, prio, title);
+  const line = buildLine(t, status, start, due, prio, title, pct);
   if (line === t.raw) return Promise.resolve();
   const bits = [];
   if (status !== statusOf(t)) bits.push(VERB[status]);
   if (start !== t.start || due !== t.due) bits.push("ngày " + (start ? fmt(start) + " → " : "") + (due ? fmt(due) : "bỏ"));
   if (title !== t.title) bits.push("đổi tên");
+  if (pct !== t.pct && "pct" in patch) bits.push("hoàn thành " + pct + "%");
   if (prio !== t.prio) bits.push("ưu tiên " + (prio ? PRIO[prio].name.toLowerCase() : "bỏ"));
   const msg = `${bits.join(", ") || "Sửa"}: ${t.label.slice(0, 60)}`;
   const job = chain.then(async () => {
     await A().update(t.path, t.line, t.raw, line, msg);
-    t.raw = line; t.done = status === "done"; t.doing = status === "doing"; t.start = start; t.due = due; t.prio = prio; t.title = title; t.label = clean(title); setRange(t);
+    t.raw = line; t.done = status === "done"; t.doing = status === "doing"; t.start = start; t.due = due; t.prio = prio; t.pct = status === "done" ? 0 : pct; t.title = title; t.label = clean(title); setRange(t);
     draw(); if (boardHidden()) window.rerenderDoc && window.rerenderDoc();
   });
   chain = job.catch(() => {});
@@ -117,6 +124,7 @@ function cardHtml(t) {
   return `<div class="card ${st} ${pcls(t.prio)}" draggable="true" data-k="${esc(t.key)}">
     <button class="c-title" data-act="open">${esc(t.label)}</button>
     <div class="c-meta">${esc(t.phase)}${t.section ? " › " + esc(t.section) : ""}${!S.file && fileCount() > 1 ? " · " + esc(t.file) : ""}</div>
+    ${t.pct && !t.done ? `<div class="c-pct" title="Đã hoàn thành ${t.pct}%"><i style="width:${t.pct}%"></i><b>${t.pct}%</b></div>` : ""}
     <div class="c-range"><button class="rng ${cls}" data-act="open" title="Sửa ngày bắt đầu, kết thúc, độ dài">📅 ${esc(rangeText(t))}</button></div>
     <div class="c-foot">
       <button class="mv" data-act="mv" data-d="-1" title="Chuyển sang cột trước"${st === "todo" ? " disabled" : ro}>◀</button>
@@ -231,6 +239,8 @@ function renderDialog() {
   d.innerHTML = `<div class="dl"><input class="dl-title" data-act="dtitle" value="${esc(t.title)}" maxlength="300" aria-label="Nội dung việc"${ro}><div class="c-meta">${esc(t.file)} › ${esc(t.phase)}${t.section ? " › " + esc(t.section) : ""}</div>
     <div class="lbl">Trạng thái</div>
     <div class="seg full">${STATUS.map(([k, nm]) => `<button data-act="dst" data-st="${k}" class="${st === k ? "on" : ""}"${ro}>${nm}</button>`).join("")}</div>
+    <div class="lbl">Mức hoàn thành <b class="pct-v">${t.done ? 100 : t.pct}%</b></div>
+    <div class="dl-pct"><input type="range" min="0" max="100" step="5" data-act="dpct" value="${t.done ? 100 : t.pct}"${ro}><input type="number" min="0" max="100" data-act="dpct" value="${t.done ? 100 : t.pct}"${ro}><span>%</span></div>
     <div class="lbl">Mức ưu tiên</div>
     <div class="seg full prio">${[["", "Chưa gán"], ["high", "🔴 Cao"], ["med", "🟡 Vừa"], ["low", "🔵 Thấp"]].map(([k, nm]) => `<button data-act="dprio" data-p="${k}" class="${pcls(k)}${t.prio === k ? " on" : ""}"${ro}>${nm}</button>`).join("")}</div>
     <div class="lbl">Thời gian</div>
@@ -341,6 +351,12 @@ function bind() {
     const t = byKey(drag); drag = null; if (!t) return;
     if (col) change(t, {status: col.dataset.col}); else { const k = dayAt(wk, e.clientX); S.sel = k; moveTo(t, k); }
   });
+  dlg().addEventListener("input", e => {
+    if (e.target.dataset.act !== "dpct") return;
+    const v = Math.max(0, Math.min(100, +e.target.value || 0));
+    dlg().querySelectorAll('[data-act="dpct"]').forEach(x => { if (x !== e.target) x.value = v; });
+    const b = dlg().querySelector(".pct-v"); if (b) b.textContent = v + "%";
+  });
   dlg().addEventListener("input", e => { if (S.adding && e.target.dataset.act === "atitle") S.adding.title = e.target.value; });
   dlg().addEventListener("keydown", e => { if (e.key === "Enter" && S.adding && e.target.dataset.act === "atitle") { e.preventDefault(); S.adding.title = e.target.value; addSubmit(); } });
   dlg().addEventListener("click", e => {
@@ -364,6 +380,7 @@ function bind() {
     const k = e.target.dataset.act || "";
     if (S.adding) { if (k === "adstart") S.adding.start = e.target.value; else if (k === "adend") S.adding.due = e.target.value; else if (k === "atitle") S.adding.title = e.target.value; return; }
     const t = byKey(S.open); if (!t) return;
+    if (k === "dpct") { change(t, {pct: e.target.value}); return; }
     if (k === "dtitle") { if (e.target.value.trim()) change(t, {title: e.target.value}); else e.target.value = t.title; }
     else if (/^d(start|end|days)$/.test(k)) dialogDates(t, e.target);
   });
@@ -398,15 +415,16 @@ function decorate(el, ctx) {
   const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), nodes = [], t0 = today(), soon = addDays(t0, 14);
   while (w.nextNode()) nodes.push(w.currentNode);
   for (const n of nodes) {
-    if (!/[🛫📅🔴🟡🔵]|#doing\b/i.test(n.nodeValue) || n.parentElement.closest("pre,code")) continue;
+    if (!/[🛫📅🔴🟡🔵📊]|#doing\b/i.test(n.nodeValue) || n.parentElement.closest("pre,code")) continue;
     const done = !!n.parentElement.closest("li.task.done"), frag = document.createDocumentFragment();
-    const re = /\s*(?:🛫\s*\d{4}-\d{2}-\d{2}|📅\s*(\d{4}-\d{2}-\d{2})|(🔴|🟡|🔵)|#doing\b)/gi;
+    const re = /\s*(?:🛫\s*\d{4}-\d{2}-\d{2}|📅\s*(\d{4}-\d{2}-\d{2})|(🔴|🟡|🔵)|📊\s*(\d{1,3})\s*%|#doing\b)/gi;
     let last = 0, m; const v = n.nodeValue;
     while ((m = re.exec(v))) {
       frag.append(v.slice(last, m.index)); last = re.lastIndex;
       if (m[0].includes("🛫")) continue;                              // ngày bắt đầu: không hiện
       const s = document.createElement("span"); frag.append(" ");
       if (m[1]) { s.className = "chip dl" + (!done && m[1] <= soon ? " bad" : ""); s.textContent = fmtS(m[1]); s.title = "Hạn chót " + fmt(m[1]); }
+      else if (m[3]) { s.className = "chip pctc"; s.textContent = m[3] + "%"; s.title = "Đã hoàn thành " + m[3] + "%"; }
       else if (m[2]) { const p = EMOJI_PRIO[m[2]]; s.className = "pdot " + pcls(p); s.title = "Ưu tiên " + PRIO[p].name.toLowerCase(); }
       else { s.className = "chip doing"; s.textContent = "Đang làm"; }
       frag.append(s);
@@ -475,6 +493,9 @@ css.textContent = `
 .c-title{display:block;width:100%;text-align:left;border:0;background:none;padding:0;font-weight:500;line-height:1.4}.c-title:hover{color:var(--accent)}
 .c-meta{color:var(--muted);font-size:12px;margin:2px 0 6px}
 .c-range{margin-bottom:6px}
+.c-pct{position:relative;height:16px;border-radius:9px;background:var(--line);overflow:hidden;margin-bottom:6px}.c-pct i{display:block;height:100%;background:var(--accent)}.c-pct b{position:absolute;right:7px;top:0;font-size:11px;line-height:16px;font-weight:600}
+.dl-pct{display:flex;align-items:center;gap:10px;margin:4px 0 12px}.dl-pct input[type=range]{flex:1;accent-color:var(--accent)}.dl-pct input[type=number]{width:70px;padding:5px 8px;font:inherit;font-size:16px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+.chip.pctc{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .rng{padding:1px 8px;font-size:12px;border-radius:999px;color:var(--muted);background:var(--panel)}
 .rng.soon{color:var(--warn);background:var(--warn-soft);border-color:transparent}.rng.bad{color:var(--bad);background:var(--bad-soft);border-color:transparent}
 .c-foot{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
