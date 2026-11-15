@@ -144,6 +144,7 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
       <div><b>VM Projects</b><small id="repoName"></small></div>
       <button id="newBtn" title="Tạo ghi chú mới">+ Mới</button>
     </div>
+    <button id="boardBtn" title="Tiến độ, kanban, lịch">📋 Bảng việc và lịch</button>
     <div class="search"><input id="q" type="search" placeholder="Tìm trong mọi tài liệu…" aria-label="Tìm kiếm"></div>
     <nav id="nav" aria-label="Tài liệu"></nav>
     <div class="side-foot"><span id="status">Đang tải…</span><button id="reloadBtn" title="Tải lại từ GitHub">Tải lại</button><button id="logoutBtn">Thoát</button></div>
@@ -159,6 +160,7 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
       <button id="cancelBtn" class="hidden">Huỷ</button>
     </div>
     <div class="scroll" id="viewScroll"><article id="view"><div class="empty">Đang tải…</div></article></div>
+    <div class="board hidden" id="board"></div>
     <div class="editor hidden" id="editor">
       <div class="toolbar" id="toolbar" role="toolbar" aria-label="Định dạng văn bản">
         <button type="button" data-act="h1" title="Tiêu đề lớn">H1</button>
@@ -334,6 +336,7 @@ function render(el, text, path, interactive) {
     imgBlob(full).then(u => { img.src = u; img.onclick = () => window.open(u, "_blank", "noopener"); })
       .catch(() => { const m = document.createElement("em"); m.textContent = `[không tải được ảnh ${full}]`; img.replaceWith(m); });
   });
+  VMBoard.decorate(el);                               // hạn 📅 và #doing hiện thành nhãn
   if (interactive) {
     const total = boxes.length, done = [...boxes].filter(b => b.checked).length;
     $("#progress").classList.toggle("hidden", !total);
@@ -342,7 +345,7 @@ function render(el, text, path, interactive) {
 }
 function go(path, highlight) {
   if (editing && dirty && !confirm("Bạn có thay đổi chưa lưu. Bỏ qua?")) return;
-  setEditing(false);
+  VMBoard.hide(); setEditing(false);
   const d = docs[path];
   if (!d) { $("#view").innerHTML = `<div class="empty">Không thấy file ${esc(path)}.</div>`; return; }
   cur = d;
@@ -608,7 +611,24 @@ $("#reloadBtn").onclick = async () => {
 };
 $("#logoutBtn").onclick = () => { if (confirm("Xoá token khỏi thiết bị này?")) { store(null); location.reload(); } };
 $("#menuBtn").onclick = () => $("#app").classList.toggle("nav-open");
-window.addEventListener("hashchange", () => { const p = decodeURIComponent(location.hash.slice(1)); if (p && docs[p] && (!cur || p !== cur.path)) go(p); });
+
+/* ---------------- bảng việc: đọc / ghi checklist qua GitHub API ---------------- */
+window.boardAdapter = {
+  async list() { await loadAll(); return Object.values(docs); },
+  update(path, i, expected, line, message) {            // đọc bản mới nhất, chỉ đổi đúng một dòng, commit lên GitHub
+    const job = saving.then(async () => {
+      const d = docs[path]; if (!d) throw new Error("Không thấy file " + path);
+      const ls = d.text.split("\n");
+      if (ls[i] !== expected) throw new Error("Dòng này vừa bị đổi ở nơi khác. Bấm ↻ Tải lại để lấy bản mới.");
+      ls[i] = line; const text = ls.join("\n");
+      d.sha = await commit(path, text, d.sha, message); d.text = text;
+    });
+    saving = job.catch(() => {});
+    return job;
+  },
+};
+$("#boardBtn").onclick = () => { $("#app").classList.remove("nav-open"); VMBoard.show(); };
+window.addEventListener("hashchange", () => { const p = decodeURIComponent(location.hash.slice(1)); if (p === "board") { if ($("#board").classList.contains("hidden")) VMBoard.show(); } else if (p && docs[p] && (!cur || p !== cur.path)) go(p); });
 document.addEventListener("visibilitychange", () => {      // quay lại tab sau lâu thì tự tải bản mới
   if (document.visibilityState === "visible" && auth && !editing && Date.now() - (window._last || 0) > 120000) {
     window._last = Date.now(); loadAll().then(() => cur && docs[cur.path] && render($("#view"), docs[cur.path].text, cur.path, true)).catch(() => {});
@@ -625,6 +645,7 @@ async function start() {
     $("#view").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return;
   }
   const want = decodeURIComponent(location.hash.slice(1));
+  if (want === "board") return VMBoard.show();
   go(docs[want] ? want : (docs["projects/dunmorn/README.md"] ? "projects/dunmorn/README.md" : Object.keys(docs)[0]));
 }
 function showLogin(err = "") {
@@ -642,5 +663,6 @@ $("#token").addEventListener("input", () => $("#loginErr").textContent = "");
 auth = loadAuth();
 auth ? start() : showLogin();
 </script>
+<script src="board.js"></script>
 </body>
 </html>
