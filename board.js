@@ -410,6 +410,30 @@ async function show() {
 }
 function hide() { $("#board").classList.add("hidden"); $("#boardBtn").classList.remove("active"); if (dlg().open) dlg().close(); }
 
+/* ---------------- đổi thứ tự việc bằng kéo thả (trong tài liệu) ---------------- */
+const wsOf = l => /^[ \t]*/.exec(l)[0];
+function blockEnd(ls, i) {                                            // một việc gồm dòng của nó và các dòng thụt sâu hơn ngay sau (việc con, đoạn nối)
+  const a = wsOf(ls[i]).length; let e = i + 1;
+  while (e < ls.length && ls[e].trim() && wsOf(ls[e]).length > a) e++;
+  return e;
+}
+function moveBlock(ls, from, to, after) {                             // chuyển khối `from` tới trước / sau khối `to`; trả về mảng mới
+  const fe = blockEnd(ls, from); if (to >= from && to < fe) return ls;
+  let ins = after ? blockEnd(ls, to) : to;
+  const aInd = wsOf(ls[from]), bInd = wsOf(ls[to]);
+  const blk = ls.slice(from, fe).map(l => l.startsWith(aInd) ? bInd + l.slice(aInd.length) : l);
+  const rest = ls.slice(0, from).concat(ls.slice(fe));
+  if (ins > from) ins -= fe - from;
+  return rest.slice(0, ins).concat(blk, rest.slice(ins));
+}
+async function moveTask(fromKey, toKey, after) {
+  const a = byKey(fromKey), b = byKey(toKey); if (!a || !b || a.path !== b.path || a.key === b.key) return;
+  if (!canEdit()) { toast("Token chỉ có quyền đọc, không sửa được.", true); return; }
+  const job = chain.then(() => A().edit(a.path, [{i: a.line, text: a.raw}, {i: b.line, text: b.raw}], ls => moveBlock(ls, a.line, b.line, after), "Đổi thứ tự: " + a.label.slice(0, 60)));
+  chain = job.catch(() => {});
+  try { await job; refresh(); } catch (e) { toast(e.message, true, 7000); refresh(); }
+}
+
 /* ---------------- trong tài liệu: hạn mờ, chấm ưu tiên, bấm vào việc để sửa, dòng "Thêm task mới" ---------------- */
 function decorate(el, ctx) {
   const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), nodes = [], t0 = today(), soon = addDays(t0, 14);
@@ -431,12 +455,12 @@ function decorate(el, ctx) {
     }
     frag.append(v.slice(last)); n.replaceWith(frag);
   }
-  el.onclick = null;
+  el.onclick = el.ondragstart = el.ondragover = el.ondrop = el.ondragend = null;
   if (!ctx || !ctx.interactive) return;
   const tasks = parseDocs([{path: ctx.path, title: ctx.path, text: ctx.text}]);
   S.doc = {path: ctx.path, tasks};
   const items = [...el.querySelectorAll("li.task")];
-  items.forEach((li, i) => { const t = tasks.find(x => x.line === ctx.lines[i]); if (t) li.dataset.k = t.key; });
+  items.forEach((li, i) => { const t = tasks.find(x => x.line === ctx.lines[i]); if (t) { li.dataset.k = t.key; if (canEdit()) li.draggable = true; } });
   if (canEdit()) new Set(items.map(li => li.parentElement)).forEach(ul => {
     const mine = [...ul.querySelectorAll("li.task")].filter(li => li.dataset.k), first = mine.find(li => li.parentElement === ul);
     if (!first) return;
@@ -448,6 +472,19 @@ function decorate(el, ctx) {
     const add = e.target.closest("li.task-add"); if (add) return openAdd(add.dataset.after, add.dataset.like);
     const li = e.target.closest("li.task"); if (li && li.dataset.k) { S.adding = null; S.open = li.dataset.k; renderDialog(); }
   };
+  let drag = null;                                                     // kéo thả để đổi thứ tự
+  const clear = () => el.querySelectorAll(".drop-before,.drop-after").forEach(x => x.classList.remove("drop-before", "drop-after"));
+  const place = (li, y) => { const r = li.getBoundingClientRect(); return y > r.top + Math.min(r.height / 2, 16); };
+  el.ondragstart = e => { const li = e.target.closest && e.target.closest("li.task[data-k]"); if (!li) return; drag = li.dataset.k; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", drag); li.classList.add("dragging"); };
+  el.ondragover = e => {
+    if (!drag) return; const li = e.target.closest("li.task[data-k]"); if (!li || li.dataset.k === drag) return;
+    e.preventDefault(); clear(); li.classList.add(place(li, e.clientY) ? "drop-after" : "drop-before");
+  };
+  el.ondrop = e => {
+    if (!drag) return; const li = e.target.closest("li.task[data-k]"); if (!li) return;
+    e.preventDefault(); const k = drag, after = place(li, e.clientY); drag = null; clear(); moveTask(k, li.dataset.k, after);
+  };
+  el.ondragend = () => { drag = null; clear(); el.querySelectorAll(".dragging").forEach(x => x.classList.remove("dragging")); };
   if (S.open && !S.adding && dlg().open) renderDialog();
 }
 
@@ -542,7 +579,10 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .chip.dl{background:none;border:0;padding:0 2px;color:var(--muted);opacity:.75;font-size:.85em;font-variant-numeric:tabular-nums}
 .chip.dl.bad{color:var(--bad);opacity:1;font-weight:500}
 .pdot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--c);margin-left:6px}
-article li.task:not(.task-add){cursor:pointer;border-radius:6px}article li.task:not(.task-add):hover{background:var(--accent-soft)}
+article li.task{margin-left:-28px;padding:6px 8px;margin-top:3px;margin-bottom:3px;line-height:1.5}article li.task p{margin:0}
+article li.task:not(.task-add){cursor:pointer;border-radius:6px}article li.task.dragging{opacity:.4}
+article li.task.drop-before{box-shadow:0 -2px 0 var(--accent)}article li.task.drop-after{box-shadow:0 2px 0 var(--accent)}
+article li.task:not(.task-add){cursor:grab}article li.task:not(.task-add):active{cursor:grabbing}article li.task:not(.task-add):hover{background:var(--accent-soft)}
 article li.task-add{opacity:.45;cursor:pointer;color:var(--muted)}article li.task-add:hover{opacity:.85}
 .fbox{display:inline-block;width:16px;height:16px;margin:0 8px 0 0;vertical-align:-2px;border:2px solid currentColor;border-radius:4px;box-sizing:border-box}
 .dl-title{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:16px;font-weight:500}

@@ -627,6 +627,17 @@ window.boardAdapter = {
     saving = job.catch(() => {});
     return job;
   },
+  edit(path, checks, mutate, message) {                 // như update nhưng đổi nhiều dòng (kéo thả đổi thứ tự)
+    const job = saving.then(async () => {
+      const d = docs[path]; if (!d) throw new Error("Không thấy file " + path);
+      const ls = d.text.split("\n");
+      for (const c of checks) if (ls[c.i] !== c.text) throw new Error("Dòng này vừa bị đổi ở nơi khác. Đã tải lại bản mới.");
+      const text = mutate(ls).join("\n"); if (text === d.text) return;
+      d.sha = await commit(path, text, d.sha, message); d.text = text;
+    });
+    saving = job.catch(() => {});
+    return job;
+  },
 };
 $("#boardBtn").onclick = () => { $("#app").classList.remove("nav-open"); VMBoard.show(); };
 window.addEventListener("hashchange", () => { const p = decodeURIComponent(location.hash.slice(1)); if (p === "board") { if ($("#board").classList.contains("hidden")) VMBoard.show(); } else if (p && docs[p] && (!cur || p !== cur.path)) go(p); });
