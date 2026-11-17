@@ -14,7 +14,8 @@ const saveFold = () => { try { localStorage.setItem("vm.navfold", JSON.stringify
 
 function cats() {                                                   // danh sách danh mục theo thứ tự
   const out = [...(N.cfg.order || [])];
-  const derived = [...new Set(N.files.map(defCat))].filter(c => !out.includes(c)).sort((a, b) => {
+  const unassigned = N.files.filter(f => { const c = N.cfg.files[f.path]; return !(c && out.includes(c)); });   // chỉ tệp chưa được xếp danh mục mới sinh danh mục mặc định
+  const derived = [...new Set(unassigned.map(defCat))].filter(c => !out.includes(c)).sort((a, b) => {
     const rk = n => { const d = Object.keys(GROUPS).find(k => GROUPS[k] === n) ?? n, i = ORDER.indexOf(d); return i < 0 ? 99 : i; };
     return rk(a) - rk(b) || a.localeCompare(b, "vi");
   });
