@@ -387,13 +387,13 @@ function setEditing(on) {
   $("#editor").classList.toggle("hidden", !on); $("#viewScroll").classList.toggle("hidden", on);
   $("#editBtn").classList.toggle("hidden", on);
   $("#saveBtn").classList.toggle("hidden", !on); $("#cancelBtn").classList.toggle("hidden", !on);
-  if (on) { $("#src").value = cur.text; render($("#preview"), cur.text, cur.path, false); $("#src").focus(); }
+  if (on) VMWys.open(cur.text, cur.path); else VMWys.close();
 }
 $("#editBtn").onclick = () => cur && setEditing(true);
 $("#cancelBtn").onclick = () => { if (!dirty || confirm("Bỏ các thay đổi chưa lưu?")) { setEditing(false); render($("#view"), cur.text, cur.path, true); } };
 $("#saveBtn").onclick = async () => {
   const b = $("#saveBtn"); b.disabled = true; b.textContent = "Đang lưu…";
-  const ok = await save($("#src").value, `Sửa ${cur.path} từ web`);
+  const ok = await save(VMWys.text(), `Sửa ${cur.path} từ web`);
   b.disabled = false; b.textContent = "Lưu";
   if (ok) { setEditing(false); render($("#view"), cur.text, cur.path, true); drawNav(); toast("Đã lưu lên GitHub."); }
 };
@@ -547,22 +547,34 @@ function relTo(from, to) {                                         // từ file 
   const up = from.split("/").slice(0, -1).map(() => "..").join("/");
   return (up ? up + "/" : "") + to;
 }
-async function uploadImages(fileList) {
+async function uploadItems(fileList) {
   const imgs = [...fileList].filter(f => /^image\//.test(f.type));
-  if (!imgs.length) { toast("Chỉ nhận ảnh PNG, JPG, GIF hoặc WebP.", true); return; }
-  const md = [];
+  if (!imgs.length) { toast("Chỉ nhận ảnh PNG, JPG, GIF hoặc WebP.", true); return []; }
+  const items = [];
   for (const [i, f] of imgs.entries()) {
     toast(`Đang tải ảnh ${i + 1}/${imgs.length} lên GitHub…`, false, 30000);
     try {
       const path = await putImage(f);
       const alt = (f.name || "").replace(/\.[^.]+$/, "").replace(/^image$/i, "").replace(/[\[\]]/g, "") || "ảnh";
-      md.push(`![${alt}](${relTo(cur.path, path)})`);
+      items.push({src: relTo(cur.path, path), alt});
     } catch (e) { toast(`Không tải được ${f.name || "ảnh"}: ${e.message}`, true, 6000); }
   }
-  if (!md.length) return;
-  insertBlock(md.join("\n\n"));
-  toast(md.length > 1 ? `Đã chèn ${md.length} ảnh (đã lưu lên GitHub).` : "Đã chèn ảnh (đã lưu lên GitHub). Nhớ bấm Lưu để giữ đoạn văn.");
+  return items;
 }
+async function uploadImages(fileList) {
+  const items = await uploadItems(fileList); if (!items.length) return;
+  if (VMWys.isWys()) VMWys.insertImages(items); else insertBlock(items.map(i => `![${i.alt}](${i.src})`).join("\n\n"));
+  toast(items.length > 1 ? `Đã chèn ${items.length} ảnh (đã lưu lên GitHub).` : "Đã chèn ảnh (đã lưu lên GitHub). Nhớ bấm Lưu để giữ đoạn văn.");
+}
+window.wysHooks = {
+  upload: uploadItems, dirty: () => { dirty = true; },
+  imgSrc(img, src) {
+    if (!src || /^(https?:|data:|blob:|\/)/i.test(src)) { img.src = src; return; }
+    let p = src; try { p = decodeURI(src); } catch {}
+    const full = resolve(cur.path, p);
+    img.alt = img.alt || full; imgBlob(full).then(u => { img.src = u; }).catch(() => { img.alt = `[không tải được ảnh ${full}]`; });
+  },
+};
 $("#imgPick").addEventListener("change", e => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) uploadImages(fs); });
 src.addEventListener("paste", e => {
   const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith("image/"));
@@ -674,6 +686,8 @@ $("#token").addEventListener("input", () => $("#loginErr").textContent = "");
 auth = loadAuth();
 auth ? start() : showLogin();
 </script>
+<script src="vendor/editor.js"></script>
+<script src="wys.js"></script>
 <script src="nav.js"></script>
 <script src="board.js"></script>
 </body>
