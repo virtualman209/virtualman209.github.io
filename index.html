@@ -257,19 +257,7 @@ async function loadAll() {
 function drawNav() {
   const q = $("#q").value.trim();
   if (q) return drawSearch(q);
-  const nav = $("#nav"); nav.innerHTML = "";
-  const list = Object.values(docs);
-  const dirs = [...new Set(list.map(f => f.dir))].sort((a, b) => {
-    const ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
-  });
-  for (const d of dirs) {
-    const g = document.createElement("div"); g.className = "group";
-    g.innerHTML = `<h4>${esc(GROUPS[d] ?? d)}</h4>`;
-    list.filter(f => f.dir === d).sort((a, b) => (b.path.endsWith("README.md") - a.path.endsWith("README.md")) || a.title.localeCompare(b.title, "vi"))
-      .forEach(f => g.appendChild(navItem(f.title, f.path, esc(f.path), () => go(f.path))));
-    nav.appendChild(g);
-  }
+  VMNav.draw($("#nav"), Object.values(docs), {active: p => !!cur && cur.path === p, open: p => { go(p); $("#app").classList.remove("nav-open"); }});
 }
 function navItem(title, path, sub, onclick) {
   const b = document.createElement("button");
@@ -614,6 +602,17 @@ $("#menuBtn").onclick = () => $("#app").classList.toggle("nav-open");
 
 /* ---------------- bảng việc: đọc / ghi checklist qua GitHub API ---------------- */
 window.rerenderDoc = () => { if (!editing) { if (cur && docs[cur.path]) render($("#view"), docs[cur.path].text, cur.path, true); } };
+let navSha = null;
+window.navAdapter = {
+  async load() {
+    try { const r = await gh(`/repos/${auth.repo}/contents/nav.json?ref=${encodeURIComponent(branch)}`); navSha = r.sha; return JSON.parse(b64decode(r.content.replace(/\s/g, ""))); }
+    catch (e) { if (e.status === 404) { navSha = null; return null; } throw e; }
+  },
+  save(cfg, message) {
+    const job = saving.then(async () => { navSha = await commit("nav.json", JSON.stringify(cfg, null, 2) + "\n", navSha, message); });
+    saving = job.catch(() => {}); return job;
+  },
+};
 window.boardAdapter = {
   async list() { await loadAll(); return Object.values(docs); },
   update(path, i, expected, line, message) {            // đọc bản mới nhất, chỉ đổi đúng một dòng, commit lên GitHub
@@ -651,7 +650,7 @@ document.addEventListener("visibilitychange", () => {      // quay lại tab sau
 async function start() {
   $("#login").classList.add("hidden"); $("#app").classList.remove("hidden");
   $("#repoName").textContent = auth.repo;
-  try { await loadAll(); window._last = Date.now(); }
+  try { await loadAll(); window._last = Date.now(); VMNav.load(); }
   catch (e) {
     if (e.status === 401 || e.status === 404) { store(null); showLogin(e.message); return; }
     $("#view").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return;
@@ -675,6 +674,7 @@ $("#token").addEventListener("input", () => $("#loginErr").textContent = "");
 auth = loadAuth();
 auth ? start() : showLogin();
 </script>
+<script src="nav.js"></script>
 <script src="board.js"></script>
 </body>
 </html>

@@ -434,6 +434,40 @@ async function moveTask(fromKey, toKey, after) {
   try { await job; refresh(); } catch (e) { toast(e.message, true, 7000); refresh(); }
 }
 
+/* ---------------- thu gọn checklist theo mục (bấm tiêu đề để mở) ---------------- */
+function foldSections(el, path) {
+  const total = el.querySelectorAll("li.task:not(.task-add)").length; if (!total) return;
+  const key = "vm.fold:" + path; let st = {}; try { st = JSON.parse(localStorage.getItem(key) || "{}") || {}; } catch {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify(st)); } catch {} };
+  const isOpen = id => id in st ? st[id] : total <= 15;                  // tài liệu ít việc thì mở sẵn, nhiều việc thì thu gọn
+  const folds = [];
+  for (const L of [3, 2]) {
+    const kids = [...el.children];
+    kids.forEach((h, i) => {
+      if (h.tagName !== "H" + L) return;
+      const nodes = []; for (let j = i + 1; j < kids.length; j++) { if (/^H[1-6]$/.test(kids[j].tagName) && +kids[j].tagName[1] <= L) break; nodes.push(kids[j]); }
+      const has = nodes.some(n => n.querySelector && n.querySelector("li.task:not(.task-add)")); if (!has) return;
+      const body = document.createElement("div"); body.className = "fold-body"; h.after(body); nodes.forEach(n => body.appendChild(n));
+      const tasks = body.querySelectorAll("li.task:not(.task-add)"), done = body.querySelectorAll("li.task.done:not(.task-add)").length;
+      const id = L + ":" + h.textContent.trim();
+      h.classList.add("fold-h"); h.tabIndex = 0; h.setAttribute("role", "button");
+      h.insertAdjacentHTML("afterbegin", `<span class="chev">▾</span>`);
+      h.insertAdjacentHTML("beforeend", `<span class="fold-c">${done}/${tasks.length}</span>`);
+      const set = on => { h.classList.toggle("open", on); body.hidden = !on; h.setAttribute("aria-expanded", on); };
+      set(isOpen(id));
+      const toggle = () => { const on = !h.classList.contains("open"); set(on); st[id] = on; save(); };
+      h.onclick = toggle; h.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
+      folds.push({h, set, id});
+    });
+  }
+  if (folds.length > 1) {
+    const bar = document.createElement("div"); bar.className = "fold-bar";
+    bar.innerHTML = `<button data-o="1">Mở tất cả</button><button data-o="0">Thu gọn tất cả</button>`;
+    bar.onclick = e => { const b = e.target.closest("button"); if (!b) return; const on = b.dataset.o === "1"; folds.forEach(f => { f.set(on); st[f.id] = on; }); save(); };
+    folds.map(f => f.h).sort((a, b) => a.compareDocumentPosition(b) & 4 ? -1 : 1)[0].before(bar);
+  }
+}
+
 /* ---------------- trong tài liệu: hạn mờ, chấm ưu tiên, bấm vào việc để sửa, dòng "Thêm task mới" ---------------- */
 function decorate(el, ctx) {
   const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), nodes = [], t0 = today(), soon = addDays(t0, 14);
@@ -485,6 +519,7 @@ function decorate(el, ctx) {
     e.preventDefault(); const k = drag, after = place(li, e.clientY); drag = null; clear(); moveTask(k, li.dataset.k, after);
   };
   el.ondragend = () => { drag = null; clear(); el.querySelectorAll(".dragging").forEach(x => x.classList.remove("dragging")); };
+  foldSections(el, ctx.path);
   if (S.open && !S.adding && dlg().open) renderDialog();
 }
 
@@ -585,6 +620,13 @@ article li.task.drop-before{box-shadow:0 -2px 0 var(--accent)}article li.task.dr
 article li.task:not(.task-add){cursor:grab}article li.task:not(.task-add):active{cursor:grabbing}article li.task:not(.task-add):hover{background:var(--accent-soft)}
 article li.task-add{opacity:.45;cursor:pointer;color:var(--muted)}article li.task-add:hover{opacity:.85}
 .fbox{display:inline-block;width:16px;height:16px;margin:0 8px 0 0;vertical-align:-2px;border:2px solid currentColor;border-radius:4px;box-sizing:border-box}
+.fold-h{cursor:pointer;user-select:none;display:flex;align-items:center;gap:10px}
+.fold-h .chev{display:inline-block;font-size:.6em;color:var(--muted);transition:transform .15s;width:1em;text-align:center}.fold-h:not(.open) .chev{transform:rotate(-90deg)}
+.fold-c{margin-left:auto;font-size:12px;font-weight:400;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:1px 9px;font-family:inherit;letter-spacing:0}
+h2.fold-h{padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);margin-top:22px}
+h3.fold-h{padding:7px 10px;border-radius:8px;margin-top:10px}.fold-h:hover{background:var(--accent-soft)}
+.fold-body[hidden]{display:none}.fold-body{padding:2px 0 6px}
+.fold-bar{display:flex;gap:6px;margin:10px 0 4px}.fold-bar button{font-size:12px;padding:3px 10px}
 .dl-title{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:16px;font-weight:500}
 .dl-grid.two{grid-template-columns:1fr 1fr}
 button.danger{color:var(--bad);border-color:transparent;background:none}button.danger:hover{background:var(--bad-soft)}
