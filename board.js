@@ -393,7 +393,7 @@ async function load() {
   if (!S.tasks.length) root.innerHTML = `<div class="none big">Đang tải việc…</div>`;
   try { S.tasks = parseDocs(await A().list()); }
   catch (e) { toast(e.message, true, 6000); root.innerHTML = `<div class="none big">${esc(e.message)}</div>`; return; }
-  if (!S.init) { S.init = true; const plan = S.tasks.find(t => /(^|\/)plan\.md$/.test(t.path)); if (plan) S.file = plan.path; }   // lần đầu: xem kế hoạch chính
+  if (!S.init) { S.init = true; const plan = S.tasks.find(t => /(^|\/)tasks\.md$/.test(t.path)) || S.tasks.find(t => /(^|\/)plan\.md$/.test(t.path)); if (plan) S.file = plan.path; }   // lần đầu: xem kế hoạch chính
   if (S.file && !S.tasks.some(t => t.path === S.file)) S.file = "";
   if (S.phase && !S.tasks.some(t => t.pk === S.phase)) S.phase = "";
   draw();
