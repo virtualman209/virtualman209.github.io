@@ -27,3 +27,7 @@ Mỗi thiết bị (máy tính, điện thoại) dán token một lần. Có th�
 **Bảo mật:** chỉ dùng trên thiết bị của bạn. Trên máy lạ, bấm **Thoát** để xoá token. Token hết hạn thì tạo token mới và đăng nhập lại.
 
 Thư viện kèm theo: [marked](https://github.com/markedjs/marked) 12.0.2 (MIT, `vendor/`).
+
+## Chạy offline (iPhone, máy tính)
+
+Mở https://virtualman209.github.io bằng Safari, đăng nhập, rồi **Chia sẻ › Thêm vào MH chính**. App giữ bản sao tài liệu trên máy (localStorage) và khung app (service worker `sw.js`), nên mất mạng vẫn mở, đọc, tìm, xem Bảng việc, sửa và tick việc được. Sửa lúc offline nằm trong hàng chờ `vmprojects.outq`, có mạng thì tự commit; nếu file đã đổi ở nơi khác trong lúc đó thì bản sửa được lưu thành `<tên>.offline-<thời điểm>.md` (không ghi đè). Chèn ảnh cần có mạng. Ảnh đã xem được giữ trong bộ nhớ `vmp-img`. Bấm **Thoát** xóa cả token lẫn bản lưu offline.

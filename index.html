@@ -6,6 +6,12 @@
 <meta name="robots" content="noindex">
 <title>VM Projects</title>
 <link rel="icon" href="favicon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="VM Projects">
+<meta name="theme-color" content="#3a5bd9">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap&subset=vietnamese" rel="stylesheet">
@@ -97,6 +103,8 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
 .editor textarea{border:0;border-right:1px solid var(--line);resize:none;padding:20px;font:14px/1.6 var(--mono);background:var(--panel);color:var(--ink);outline:none;min-height:0}
 .editor textarea.drag{outline:2px dashed var(--accent);outline-offset:-8px}
 .editor .scroll{background:var(--bg)}
+.netbar{position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:60;background:#fff4d6;color:#6b4e00;border:1px solid #f0d58a;border-radius:999px;padding:5px 14px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.12);max-width:92vw;text-align:center}
+.netbar.hidden{display:none}
 .toast{position:fixed;right:16px;bottom:16px;left:auto;max-width:420px;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:8px;padding:12px 16px;box-shadow:0 8px 30px rgba(0,0,0,.15);white-space:pre-wrap;font-size:14px;z-index:9}
 .toast.err{border-left-color:var(--danger)}
 @media (max-width:760px){
@@ -191,6 +199,7 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
   </main>
 </div>
 <div class="toast hidden" id="toast" role="status"></div>
+<div class="netbar hidden" id="netbar" role="status"></div>
 
 <script src="vendor/marked.umd.js"></script>
 <script>
@@ -233,6 +242,17 @@ async function gh(path, opts = {}) {
 /* ---------------- tải nội dung ---------------- */
 function titleOf(text, path) { const m = text.match(/^# (.+)$/m); return m ? m[1].trim() : path.split("/").pop().replace(/\.md$/, ""); }
 async function loadAll() {
+  try { await loadRemote(); setOffline(false); }
+  catch (e) {
+    if (!isNet(e)) throw e;
+    const at = restore(); if (!at) throw Object.assign(new Error("Đang offline và máy này chưa có bản lưu. Mở app một lần khi có mạng."), {status: 0});
+    setOffline(true);
+    $("#status").textContent = `Offline · bản lưu ${new Date(at).toLocaleString("vi-VN", {hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit"})}`;
+    $("#editBtn").disabled = !canWrite; $("#newBtn").disabled = !canWrite;
+    drawNav();
+  }
+}
+async function loadRemote() {
   $("#status").textContent = "Đang tải từ GitHub…";
   const repo = await gh(`/repos/${auth.repo}`);
   branch = repo.default_branch || "main";
@@ -248,6 +268,7 @@ async function loadAll() {
     next[t.path] = {path: t.path, sha: t.sha, text, title: titleOf(text, t.path), dir: t.path.includes("/") ? t.path.slice(0, t.path.lastIndexOf("/")) : ""};
   }));
   docs = next;
+  applyQueue(); persist();
   $("#status").textContent = `${mds.length} tài liệu · ${new Date().toLocaleTimeString("vi-VN", {hour: "2-digit", minute: "2-digit"})}` + (canWrite ? "" : " · chỉ đọc");
   $("#editBtn").disabled = !canWrite; $("#newBtn").disabled = !canWrite;
   drawNav();
@@ -349,11 +370,90 @@ function go(path, highlight) {
 }
 
 /* ---------------- sửa & lưu (commit thẳng lên GitHub) ---------------- */
-async function commit(path, text, sha, message) {
+async function ghPut(path, text, sha, message) {
   const body = {message, content: b64encode(text), branch, ...(sha ? {sha} : {})};
   const r = await gh(`/repos/${auth.repo}/contents/${encPath(path)}`, {method: "PUT", body: JSON.stringify(body)});
   return r.content.sha;
 }
+async function commit(path, text, sha, message) {             // có mạng: commit ngay; mất mạng: giữ trên máy, có mạng tự gửi
+  if (!offline && !outq().some(x => x.path === path)) {
+    try { const s = await ghPut(path, text, sha, message); setTimeout(persist, 0); return s; }
+    catch (e) { if (!isNet(e)) throw e; setOffline(true); }
+  }
+  enqueue(path, text, sha, message); setTimeout(persist, 0);
+  return sha;
+}
+
+/* ---------------- chạy offline: bản lưu trên máy + hàng chờ gửi ---------------- */
+const SNAP = "vmprojects.snap", OUTQ = "vmprojects.outq";
+let offline = false, flushing = false;
+const isNet = e => !e || !e.status;                                // lỗi không có mã HTTP = mất mạng
+function outq() { try { return JSON.parse(localStorage.getItem(OUTQ) || "[]"); } catch { return []; } }
+function setOutq(q) { try { localStorage.setItem(OUTQ, JSON.stringify(q)); } catch {} netbar(); }
+function enqueue(path, text, base, msg) {
+  const q = outq(), it = q.find(x => x.path === path);
+  if (it) { it.text = text; if (!it.msgs.includes(msg)) it.msgs.push(msg); } else q.push({path, base: base || null, text, msgs: [msg], at: Date.now()});
+  setOutq(q);
+}
+function persist() {
+  if (!auth) return;
+  try {
+    localStorage.setItem(SNAP, JSON.stringify({repo: auth.repo, branch, canWrite, at: Date.now(), nav: navCfg, navSha,
+      docs: Object.fromEntries(Object.values(docs).map(d => [d.path, {sha: d.sha, text: d.text}]))}));
+  } catch {}
+}
+function restore() {
+  let s; try { s = JSON.parse(localStorage.getItem(SNAP) || "null"); } catch { s = null; }
+  if (!s || s.repo !== auth.repo) return 0;
+  branch = s.branch || "main"; canWrite = s.canWrite !== false; navCfg = s.nav || null; navSha = s.navSha || null;
+  docs = {};
+  for (const [p, d] of Object.entries(s.docs || {})) docs[p] = {path: p, sha: d.sha, text: d.text, title: titleOf(d.text, p), dir: p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ""};
+  applyQueue();
+  return s.at || 1;
+}
+function applyQueue() {                                           // sửa chưa gửi luôn đè lên bản tải về
+  for (const it of outq()) {
+    if (it.path === "nav.json") { try { navCfg = JSON.parse(it.text); } catch {} continue; }
+    const d = docs[it.path];
+    if (d) { d.text = it.text; d.title = titleOf(it.text, it.path); }
+    else docs[it.path] = {path: it.path, sha: null, text: it.text, title: titleOf(it.text, it.path), dir: it.path.includes("/") ? it.path.slice(0, it.path.lastIndexOf("/")) : ""};
+  }
+}
+function setOffline(on) { offline = on; document.documentElement.classList.toggle("is-offline", on); netbar(); }
+function netbar() {
+  const n = outq().length, b = $("#netbar"); if (!b) return;
+  b.classList.toggle("hidden", !offline && !n);
+  b.textContent = offline ? "Đang offline · xem bản lưu trên máy" + (n ? ` · ${n} tài liệu sửa chờ gửi` : " · sửa vẫn được, có mạng sẽ tự gửi")
+                          : `Đang gửi ${n} tài liệu đã sửa lúc offline…`;
+}
+async function flush() {
+  if (flushing || !auth || !outq().length) return;
+  flushing = true;
+  try {
+    for (const it of outq()) {
+      let remote = null;
+      try { remote = (await gh(`/repos/${auth.repo}/contents/${encPath(it.path)}?ref=${encodeURIComponent(branch)}`)).sha; }
+      catch (e) { if (isNet(e)) throw e; if (e.status !== 404) throw e; }
+      const msg = it.msgs.length > 1 ? `${it.msgs[0]} (+${it.msgs.length - 1} sửa khác, lúc offline)` : it.msgs[0] + " (lúc offline)";
+      if (remote === it.base || (it.path === "nav.json")) {
+        const s = await ghPut(it.path, it.text, remote, msg);
+        if (it.path === "nav.json") navSha = s; else if (docs[it.path]) docs[it.path].sha = s;
+      } else {                                                    // file đã đổi ở nơi khác trong lúc offline: không ghi đè, lưu thành bản riêng
+        const stamp = new Date(it.at).toISOString().replace(/\D/g, "").slice(0, 12);
+        const cp = it.path.replace(/\.md$/i, "") + `.offline-${stamp}.md`;
+        await ghPut(cp, it.text, null, `Bản sửa lúc offline của ${it.path} (file đã đổi ở nơi khác)`);
+        toast(`${it.path} đã đổi ở nơi khác lúc bạn offline. Bản sửa của bạn được lưu thành ${cp} để so lại.`, true, 12000);
+      }
+      setOutq(outq().filter(x => x.path !== it.path));
+    }
+    setOffline(false);
+    toast("Đã gửi các thay đổi lúc offline lên GitHub.");
+  } catch (e) {
+    if (isNet(e)) setOffline(true); else toast(e.message, true, 7000);
+  } finally { flushing = false; netbar(); }
+}
+window.addEventListener("online", async () => { setOffline(false); await flush(); if (!editing) try { await loadAll(); window.rerenderDoc(); } catch {} });
+window.addEventListener("offline", () => setOffline(true));
 let saving = Promise.resolve();
 async function save(text, message) {
   const d = cur;
@@ -395,7 +495,7 @@ $("#saveBtn").onclick = async () => {
   const b = $("#saveBtn"); b.disabled = true; b.textContent = "Đang lưu…";
   const ok = await save(VMWys.text(), `Sửa ${cur.path} từ web`);
   b.disabled = false; b.textContent = "Lưu";
-  if (ok) { setEditing(false); render($("#view"), cur.text, cur.path, true); drawNav(); toast("Đã lưu lên GitHub."); }
+  if (ok) { setEditing(false); render($("#view"), cur.text, cur.path, true); drawNav(); toast(offline ? "Đã lưu trên máy (offline). Có mạng sẽ tự gửi lên GitHub." : "Đã lưu lên GitHub."); }
 };
 let pv;
 $("#src").addEventListener("input", () => { dirty = true; clearTimeout(pv); pv = setTimeout(() => render($("#preview"), $("#src").value, cur.path, false), 150); });
@@ -411,9 +511,15 @@ const MAX_IMG = 25 * 1024 * 1024;
 const imgCache = new Map();                                       // đường dẫn → Promise<blob URL>
 function imgBlob(path) {
   if (!imgCache.has(path)) imgCache.set(path, (async () => {
-    const r = await fetch(API + `/repos/${auth.repo}/contents/${encPath(path)}?ref=${encodeURIComponent(branch)}`, {cache: "no-store", headers: {
-      "Authorization": "Bearer " + auth.token, "Accept": "application/vnd.github.raw+json", "X-GitHub-Api-Version": "2022-11-28"}});
-    if (!r.ok) { imgCache.delete(path); throw new Error(r.statusText); }
+    const key = "https://vmp-img.local/" + encPath(path), box = self.caches ? await caches.open("vmp-img").catch(() => null) : null;
+    let r = null;
+    try {
+      r = await fetch(API + `/repos/${auth.repo}/contents/${encPath(path)}?ref=${encodeURIComponent(branch)}`, {cache: "no-store", headers: {
+        "Authorization": "Bearer " + auth.token, "Accept": "application/vnd.github.raw+json", "X-GitHub-Api-Version": "2022-11-28"}});
+      if (r.ok && box) box.put(key, r.clone()).catch(() => {});
+    } catch { r = null; }
+    if ((!r || !r.ok) && box) r = (await box.match(key)) || r;     // offline: dùng ảnh đã lưu
+    if (!r || !r.ok) { imgCache.delete(path); throw new Error(r ? r.statusText : "offline"); }
     const ext = (path.match(/\.\w+$/) || [""])[0].toLowerCase();
     return URL.createObjectURL(new Blob([await r.arrayBuffer()], {type: IMG_MIME[ext] || "application/octet-stream"}));
   })());
@@ -433,6 +539,7 @@ function slugify(name) {
 }
 function bufB64(buf) { const u = new Uint8Array(buf); let bin = ""; for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(bin); }
 async function putImage(file) {                                   // upload = một commit trên repo, ảnh nằm trong assets/
+  if (offline) throw new Error("Đang offline: chèn ảnh cần có mạng");
   const buf = await file.arrayBuffer(), ext = sniffExt(new Uint8Array(buf.slice(0, 12)));
   if (!ext) throw new Error("Chỉ nhận ảnh PNG, JPG, GIF hoặc WebP");
   if (buf.byteLength > MAX_IMG) throw new Error("Ảnh phải nhỏ hơn 25 MB");
@@ -609,18 +716,24 @@ $("#reloadBtn").onclick = async () => {
   if (editing && dirty) return toast("Lưu hoặc huỷ phần đang sửa trước.", true);
   try { await loadAll(); if (cur) go(cur.path); toast("Đã tải bản mới nhất."); } catch (e) { toast(e.message, true); }
 };
-$("#logoutBtn").onclick = () => { if (confirm("Xoá token khỏi thiết bị này?")) { store(null); location.reload(); } };
+$("#logoutBtn").onclick = () => {
+  const n = outq().length;
+  if (!confirm(n ? `Còn ${n} tài liệu sửa lúc offline chưa gửi, thoát sẽ mất. Vẫn thoát?` : "Xoá token và bản lưu offline khỏi thiết bị này?")) return;
+  store(null); try { localStorage.removeItem(SNAP); localStorage.removeItem(OUTQ); } catch {} if (self.caches) caches.delete("vmp-img"); location.reload();
+};
 $("#menuBtn").onclick = () => $("#app").classList.toggle("nav-open");
 
 /* ---------------- bảng việc: đọc / ghi checklist qua GitHub API ---------------- */
 window.rerenderDoc = () => { if (!editing) { if (cur && docs[cur.path]) render($("#view"), docs[cur.path].text, cur.path, true); } };
-let navSha = null;
+let navSha = null, navCfg = null;
 window.navAdapter = {
   async load() {
-    try { const r = await gh(`/repos/${auth.repo}/contents/nav.json?ref=${encodeURIComponent(branch)}`); navSha = r.sha; return JSON.parse(b64decode(r.content.replace(/\s/g, ""))); }
-    catch (e) { if (e.status === 404) { navSha = null; return null; } throw e; }
+    if (offline || outq().some(x => x.path === "nav.json")) return navCfg;
+    try { const r = await gh(`/repos/${auth.repo}/contents/nav.json?ref=${encodeURIComponent(branch)}`); navSha = r.sha; navCfg = JSON.parse(b64decode(r.content.replace(/\s/g, ""))); persist(); return navCfg; }
+    catch (e) { if (e.status === 404) { navSha = null; return null; } if (isNet(e)) return navCfg; throw e; }
   },
   save(cfg, message) {
+    navCfg = cfg;
     const job = saving.then(async () => { navSha = await commit("nav.json", JSON.stringify(cfg, null, 2) + "\n", navSha, message); });
     saving = job.catch(() => {}); return job;
   },
@@ -662,9 +775,12 @@ document.addEventListener("visibilitychange", () => {      // quay lại tab sau
 async function start() {
   $("#login").classList.add("hidden"); $("#app").classList.remove("hidden");
   $("#repoName").textContent = auth.repo;
+  netbar();
+  if (outq().length && navigator.onLine !== false) await flush();
   try { await loadAll(); window._last = Date.now(); VMNav.load(); }
   catch (e) {
     if (e.status === 401 || e.status === 404) { store(null); showLogin(e.message); return; }
+    if (e.status === 0) { $("#view").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
     $("#view").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return;
   }
   const want = decodeURIComponent(location.hash.slice(1));
@@ -684,7 +800,8 @@ $("#loginForm").addEventListener("submit", e => {
 $("#token").addEventListener("input", () => $("#loginErr").textContent = "");
 
 auth = loadAuth();
-auth ? start() : showLogin();
+document.addEventListener("DOMContentLoaded", () => auth ? start() : showLogin());   // chờ nav.js, board.js… (offline tải rất nhanh)
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
 <script src="vendor/editor.js"></script>
 <script src="wys.js"></script>
