@@ -75,6 +75,9 @@ css.textContent = `
 #wys p.is-editor-empty:first-child::before{content:attr(data-placeholder);float:left;height:0;color:var(--muted);pointer-events:none}
 .toolbar button.on{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
 .toolbar .mode-btn{margin-left:auto}
+.editor:not(.wys) .toolbar .wys-only{display:none}
+.toolbar mark.hl{background:#ffe066;color:#3b2a00;padding:0 3px;border-radius:3px}
+#wys mark{background:#ffe066;color:#3b2a00;border-radius:2px;padding:0 1px}
 #tblTools{display:inline-flex;align-items:center;gap:4px}
 #wys ul[data-type=taskList]{list-style:none;padding-left:4px}
 #wys li[data-checked]{display:flex;align-items:flex-start;gap:8px;margin:8px 0}

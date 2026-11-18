@@ -134,6 +134,61 @@ function openCat(name) {
   d.showModal();
 }
 
+/* ---------------- tạo văn bản mới: gõ tên, chọn danh mục (hoặc tạo danh mục mới), rồi vào trình soạn thảo ---------------- */
+const slug = s => String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "d").toLowerCase()
+  .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "van-ban";
+function dirFor(cat) {                                              // thư mục chứa nhiều tệp nhất của danh mục; danh mục trống -> notes
+  const cnt = {};
+  N.files.filter(f => catOf(f) === cat).forEach(f => { const d = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : ""; cnt[d] = (cnt[d] || 0) + 1; });
+  const best = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
+  return best ? best[0] : "notes";
+}
+function pathFor(title, cat) {
+  const dir = dirFor(cat), base = (dir ? dir + "/" : "") + slug(title);
+  const taken = p => N.files.some(f => f.path.toLowerCase() === p.toLowerCase());
+  let p = base + ".md", i = 2; while (taken(p)) p = `${base}-${i++}.md`;
+  return p;
+}
+function newDoc() {
+  if (!canEdit() || !window.navAdapter.create) { toast("Không tạo được văn bản (chỉ có quyền đọc).", true); return; }
+  const d = dialog(), list = cats(), curCat = (N.opts && N.files.find(f => N.opts.active(f.path))) ? catOf(N.files.find(f => N.opts.active(f.path))) : list[0];
+  d.innerHTML = `<div class="dl"><h3>Văn bản mới</h3>
+    <div class="lbl">Tên văn bản</div><input class="dl-title" id="ndTitle" maxlength="120" placeholder="Ví dụ: Ý tưởng boss chương 2" autocomplete="off">
+    <div class="lbl">Nằm trong danh mục</div>
+    <select id="ndCat" class="nd-sel">${list.map(c => `<option value="${esc(c)}"${c === curCat ? " selected" : ""}>${esc(c)}</option>`).join("")}<option value="__new">＋ Danh mục mới…</option></select>
+    <input class="dl-title nd-new hidden" id="ndNew" maxlength="40" placeholder="Tên danh mục mới" autocomplete="off">
+    <div class="dl-note" id="ndPath"></div>
+    <div class="dl-foot"><button data-a="x">Huỷ</button><button class="primary" data-a="ok">Tạo và soạn ›</button></div></div>`;
+  const $d = s => d.querySelector(s), isNew = () => $d("#ndCat").value === "__new";
+  const show = () => {
+    $d("#ndNew").classList.toggle("hidden", !isNew());
+    const t = $d("#ndTitle").value.trim(), cat = isNew() ? ($d("#ndNew").value.trim() || "…") : $d("#ndCat").value;
+    $d("#ndPath").textContent = t ? "Lưu thành tệp: " + pathFor(t, isNew() ? "\u0000" : cat) : "Gõ tên văn bản trước.";
+  };
+  let busy = false;
+  const submit = async () => {
+    if (busy) return;
+    const title = $d("#ndTitle").value.trim().replace(/\s+/g, " ");
+    if (!title) { toast("Hãy gõ tên văn bản.", true); $d("#ndTitle").focus(); return; }
+    let cat = $d("#ndCat").value, fresh = false;
+    if (cat === "__new") { cat = cleanName($d("#ndNew").value); if (!cat) { $d("#ndNew").focus(); if (!$d("#ndNew").value.trim()) toast("Hãy gõ tên danh mục mới.", true); return; } fresh = true; }
+    const path = pathFor(title, fresh ? "\u0000" : cat);
+    busy = true; $d('[data-a="ok"]').disabled = true; $d('[data-a="ok"]').textContent = "Đang tạo…";
+    try {
+      await window.navAdapter.create(path, title);
+      materialize(); if (fresh && !N.cfg.order.includes(cat)) N.cfg.order.push(cat);
+      N.cfg.files[path] = cat; if (fold[cat]) { delete fold[cat]; saveFold(); }
+      persist(fresh ? `Thêm danh mục ${cat}, tạo ${title.slice(0, 40)}` : `Xếp ${title.slice(0, 40)} vào ${cat}`);
+      d.close();
+      window.navAdapter.openNew(path);
+    } catch (e) { toast(e.message, true, 6000); busy = false; $d('[data-a="ok"]').disabled = false; $d('[data-a="ok"]').textContent = "Tạo và soạn ›"; }
+  };
+  d.onclick = e => { if (e.target === d) return d.close(); const b = e.target.closest("button"); if (!b) return; if (b.dataset.a === "x") d.close(); else if (b.dataset.a === "ok") submit(); };
+  d.oninput = show; d.onchange = () => { show(); if (isNew()) $d("#ndNew").focus(); };
+  d.onkeydown = e => { if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); submit(); } };
+  show(); d.showModal(); $d("#ndTitle").focus();
+}
+
 /* ---------------- giao diện ---------------- */
 const css = document.createElement("style");
 css.textContent = `
@@ -158,8 +213,13 @@ css.textContent = `
 #navDlg{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);padding:0;width:min(380px,92vw)}
 #navDlg::backdrop{background:rgba(0,0,0,.4)}
 .nav-list{display:flex;flex-direction:column;gap:6px;margin:10px 0 4px;max-height:50vh;overflow:auto}
+.nd-sel{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:16px}
+.nd-new{margin-top:8px}#navDlg .dl-title{font-size:16px}
+#navDlg .lbl{font-size:12px;color:var(--muted);margin:12px 0 4px}#navDlg .dl{padding:18px 20px}#navDlg h3{margin:0 0 4px}
+#navDlg .dl-note{font-size:12px;color:var(--muted);margin-top:10px;word-break:break-all}
+#navDlg .dl-foot{display:flex;justify-content:space-between;gap:8px;margin-top:18px}
 .nav-list button{text-align:left;padding:8px 12px}.nav-list button.on{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}.nav-list .plus{color:var(--accent);border-style:dashed}`;
 document.head.appendChild(css);
 
-window.VMNav = {draw, load};
+window.VMNav = {draw, load, newDoc};
 })();

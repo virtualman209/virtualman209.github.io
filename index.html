@@ -157,7 +157,7 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
   <aside>
     <div class="brand">
       <div><b>VM Projects</b><small id="repoName"></small></div>
-      <button id="newBtn" title="Tạo ghi chú mới">+ Mới</button>
+      <button id="newBtn" title="Tạo văn bản mới (chọn danh mục)">+ Mới</button>
     </div>
     <button id="boardBtn" title="Tiến độ, kanban, lịch">📋 Bảng việc và lịch</button>
     <div class="search"><input id="q" type="search" placeholder="Tìm trong mọi tài liệu…" aria-label="Tìm kiếm"></div>
@@ -179,13 +179,18 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
     <div class="board hidden" id="board"></div>
     <div class="editor hidden" id="editor">
       <div class="toolbar" id="toolbar" role="toolbar" aria-label="Định dạng văn bản">
-        <button type="button" data-act="h1" title="Tiêu đề lớn">H1</button>
+        <button type="button" class="wys-only" data-act="undo" title="Hoàn tác (Ctrl+Z)">↶</button>
+      <button type="button" class="wys-only" data-act="redo" title="Làm lại (Ctrl+Y)">↷</button>
+      <span class="sep wys-only"></span>
+      <button type="button" data-act="h1" title="Tiêu đề lớn">H1</button>
         <button type="button" data-act="h2" title="Tiêu đề vừa">H2</button>
         <button type="button" data-act="h3" title="Tiêu đề nhỏ">H3</button>
         <span class="sep"></span>
         <button type="button" data-act="bold" title="Chữ đậm (Ctrl+B)"><b>B</b></button>
         <button type="button" data-act="italic" title="Chữ nghiêng (Ctrl+I)"><i>I</i></button>
-        <button type="button" data-act="strike" title="Gạch ngang chữ"><s>S</s></button>
+        <button type="button" class="wys-only" data-act="underline" title="Gạch chân (Ctrl+U)"><u>U</u></button>
+      <button type="button" data-act="strike" title="Gạch ngang chữ"><s>S</s></button>
+      <button type="button" class="wys-only" data-act="highlight" title="Tô vàng chữ quan trọng"><mark class="hl">Tô</mark></button>
         <button type="button" data-act="code" title="Mã trong dòng">&lt;/&gt;</button>
         <button type="button" data-act="link" title="Chèn liên kết (Ctrl+K)">Liên kết</button>
         <span class="sep"></span>
@@ -197,6 +202,7 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
         <button type="button" data-act="codeblock" title="Khối mã">Khối mã</button>
         <button type="button" data-act="table" title="Chèn bảng">Bảng</button>
         <button type="button" data-act="hr" title="Đường kẻ ngang">―</button>
+      <button type="button" class="wys-only" data-act="clear" title="Bỏ định dạng đoạn đang chọn">Bỏ định dạng</button>
         <span class="sep"></span>
         <button type="button" data-act="image" title="Chèn ảnh (cũng dán Ctrl+V hoặc kéo thả vào ô soạn thảo). Ảnh được lưu lên GitHub ngay.">🖼 Ảnh</button>
         <input type="file" id="imgPick" accept="image/png,image/jpeg,image/gif,image/webp" multiple class="hidden">
@@ -716,19 +722,7 @@ src.addEventListener("drop", e => {
   if (e.dataTransfer?.files?.length) { e.preventDefault(); uploadImages(e.dataTransfer.files); }
 });
 
-$("#newBtn").onclick = async () => {
-  let p = prompt("Tên ghi chú mới (có thể kèm thư mục, ví dụ: notes/y-tuong-boss):", "notes/");
-  if (!p || p.endsWith("/")) return;
-  p = p.trim().replace(/^\/+/, ""); if (!/\.md$/i.test(p)) p += ".md";
-  if (docs[p]) return go(p);
-  const name = p.split("/").pop().replace(/\.md$/i, "").replace(/-/g, " ");
-  const text = `# ${name.charAt(0).toUpperCase() + name.slice(1)}\n\n`;
-  try {
-    const sha = await commit(p, text, null, `Tạo ${p} từ web`);
-    docs[p] = {path: p, sha, text, title: titleOf(text, p), dir: p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ""};
-    drawNav(); go(p); setEditing(true);
-  } catch (e) { toast(e.message, true); }
-};
+$("#newBtn").onclick = () => VMNav.newDoc();
 $("#askBtn").onclick = async () => {
   const text = `Đọc repo ${auth.repo} (bắt đầu từ CLAUDE.md${cur ? ", rồi file " + cur.path : ""}) và giúp ta: `;
   try { await navigator.clipboard.writeText(text); toast("Đã copy. Dán vào Claude rồi viết tiếp yêu cầu."); }
@@ -749,6 +743,14 @@ $("#menuBtn").onclick = () => $("#app").classList.toggle("nav-open");
 window.rerenderDoc = () => { if (!editing) { if (cur && docs[cur.path]) render($("#view"), docs[cur.path].text, cur.path, true); } };
 let navSha = null, navCfg = null;
 window.navAdapter = {
+  async create(path, title) {
+    if (docs[path]) throw new Error("Đã có tệp " + path);
+    const text = `# ${title}\n\n`;
+    const sha = await commit(path, text, null, `Tạo văn bản ${title}`);
+    docs[path] = {path, sha, text, title: titleOf(text, path), dir: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""};
+    setTimeout(persist, 0);
+  },
+  openNew(path) { $("#app").classList.remove("nav-open"); drawNav(); go(path); setEditing(true); },
   async load() {
     if (offline || outq().some(x => x.path === "nav.json")) return navCfg;
     try { const r = await gh(`/repos/${auth.repo}/contents/nav.json?ref=${encodeURIComponent(branch)}`); navSha = r.sha; navCfg = JSON.parse(b64decode(r.content.replace(/\s/g, ""))); persist(); return navCfg; }
