@@ -1,6 +1,6 @@
 /* VM Projects chạy offline: giữ sẵn khung app (HTML, JS, phông chữ). Nội dung tài liệu lưu riêng trên máy (localStorage), không qua đây.
    Không bao giờ lưu yêu cầu tới api.github.com. Đổi V khi muốn ép xóa bộ nhớ đệm cũ. */
-const V = "vmp-shell-2";
+const V = "vmp-shell-3";
 const SHELL = ["./", "index.html", "board.js", "nav.js", "wys.js", "vendor/editor.js", "vendor/marked.umd.js",
   "favicon.png", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 self.addEventListener("install", e => {

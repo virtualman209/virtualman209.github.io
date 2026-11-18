@@ -148,7 +148,7 @@ const LANES = 5;
 function barHtml(sg) {
   const t = sg.t, st = statusOf(t), late = !t.done && t.re < today();
   const tip = `${t.label}\n${rangeText(t)}${t.prio ? "\nƯu tiên " + PRIO[t.prio].name.toLowerCase() : ""}${late ? "\nQuá hạn" : ""}`;
-  return `<div class="bar ${pcls(t.prio)} ${st}${late ? " late" : ""}${sg.capL ? " capl" : ""}${sg.capR ? " capr" : ""}" role="button" tabindex="0" draggable="true" data-k="${esc(t.key)}" data-act="open"
+  return `<div class="cbar ${pcls(t.prio)} ${st}${late ? " late" : ""}${sg.capL ? " capl" : ""}${sg.capR ? " capr" : ""}" role="button" tabindex="0" draggable="true" data-k="${esc(t.key)}" data-act="open"
     style="grid-column:${sg.c0 + 1} / span ${sg.c1 - sg.c0 + 1};grid-row:${sg.lane + 1}" title="${esc(tip)}">${esc(t.label)}</div>`;
 }
 function chipHtml(t) {                                               // chip nhỏ trong danh sách "chưa có ngày"
@@ -325,7 +325,7 @@ function bind() {
     const t = byKey(el.closest("[data-k]").dataset.k); if (t) change(t, {prio: el.value});
   });
   root.addEventListener("keydown", e => {
-    if ((e.key === "Enter" || e.key === " ") && e.target.matches(".dchip,.bar")) { e.preventDefault(); S.open = e.target.dataset.k; renderDialog(); }
+    if ((e.key === "Enter" || e.key === " ") && e.target.matches(".dchip,.cbar")) { e.preventDefault(); S.open = e.target.dataset.k; renderDialog(); }
   });
   /* kéo thả (máy tính): thả vào cột để đổi trạng thái, thả vào ngày để đặt lịch (giữ nguyên độ dài) */
   let drag = null;
@@ -589,12 +589,12 @@ css.textContent = `
 .dn{font-size:12px;color:var(--ink);height:20px;text-align:right}
 .day .more{position:absolute;left:5px;bottom:2px;font-size:11px;color:var(--muted)}
 .wk-bars{position:absolute;left:0;right:0;top:28px;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:var(--lh);row-gap:2px;pointer-events:none}
-.bar{pointer-events:auto;margin:0 3px;padding:0 8px;border-radius:5px;background:var(--c);color:var(--on);font-size:12px;line-height:var(--lh);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;box-shadow:0 1px 1px rgba(0,0,0,.15)}
-.bar.capl{margin-left:0;border-top-left-radius:0;border-bottom-left-radius:0}.bar.capr{margin-right:0;border-top-right-radius:0;border-bottom-right-radius:0}
-.bar.doing{font-weight:600}.bar.doing::before{content:"▶ "}
-.bar.late::before{content:"⚠ "}
-.bar.done{opacity:.5;text-decoration:line-through}
-.bar:hover{filter:brightness(1.08)}
+.cbar{pointer-events:auto;margin:0 3px;padding:0 8px;border-radius:5px;background:var(--c);color:var(--on);font-size:12px;line-height:var(--lh);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;box-shadow:0 1px 1px rgba(0,0,0,.15)}
+.cbar.capl{margin-left:0;border-top-left-radius:0;border-bottom-left-radius:0}.cbar.capr{margin-right:0;border-top-right-radius:0;border-bottom-right-radius:0}
+.cbar.doing{font-weight:600}.cbar.doing::before{content:"▶ "}
+.cbar.late::before{content:"⚠ "}
+.cbar.done{opacity:.5;text-decoration:line-through}
+.cbar:hover{filter:brightness(1.08)}
 .dchip{display:block;margin:2px 0;padding:1px 8px;border-radius:5px;font-size:12px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;background:var(--c);color:var(--on)}
 .dchip.done{opacity:.5;text-decoration:line-through}
 .more{font-size:11px;color:var(--muted)}
@@ -635,7 +635,7 @@ button.danger{color:var(--bad);border-color:transparent;background:none}button.d
   .kanban{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:86%;overflow-x:auto;scroll-snap-type:x mandatory;gap:10px}
   .col{scroll-snap-align:start}.col .list{max-height:60vh}
   .wk{--lh:8px}.wk-days{min-height:calc(28px + var(--nl) * (var(--lh) + 2px))}.wk-bars{top:24px}
-  .bar{font-size:0;padding:0;margin:0 1px}.bar::before{content:none!important}
+  .cbar{font-size:0;padding:0;margin:0 1px}.cbar::before{content:none!important}
   .day{padding:2px}.day .more{display:none}.bar2{width:110px}.legend{margin-left:0}
   .dl-grid{grid-template-columns:1fr 1fr}
 }

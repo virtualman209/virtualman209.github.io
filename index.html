@@ -2,13 +2,14 @@
 <html lang="vi">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <title>VM Projects</title>
 <link rel="icon" href="favicon.png">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="VM Projects">
 <meta name="theme-color" content="#3a5bd9">
@@ -30,6 +31,12 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
+/* iPhone (app trên màn hình chính, tai thỏ): chừa chỗ thanh trạng thái và vạch Home */
+.app{box-sizing:border-box;padding-top:env(safe-area-inset-top);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+aside{padding-top:env(safe-area-inset-top)}
+.netbar{margin-top:env(safe-area-inset-top)}
+#backBtn{font-size:18px;line-height:1;padding:4px 10px}
+.bar,.toolbar{flex:none}  /* không để thanh trên bị bóp dẹt khi nội dung dài */
 body{background:var(--bg);color:var(--ink);font:15px/1.65 var(--font)}
 button,input{font:inherit}
 button{cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:6px 12px}
@@ -105,7 +112,7 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
 .editor .scroll{background:var(--bg)}
 .netbar{position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:60;background:#fff4d6;color:#6b4e00;border:1px solid #f0d58a;border-radius:999px;padding:5px 14px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.12);max-width:92vw;text-align:center}
 .netbar.hidden{display:none}
-.toast{position:fixed;right:16px;bottom:16px;left:auto;max-width:420px;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:8px;padding:12px 16px;box-shadow:0 8px 30px rgba(0,0,0,.15);white-space:pre-wrap;font-size:14px;z-index:9}
+.toast{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));left:auto;max-width:420px;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:8px;padding:12px 16px;box-shadow:0 8px 30px rgba(0,0,0,.15);white-space:pre-wrap;font-size:14px;z-index:9}
 .toast.err{border-left-color:var(--danger)}
 @media (max-width:760px){
   .app{grid-template-columns:1fr}
@@ -160,6 +167,7 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
   <main>
     <div class="bar">
       <button class="menu" id="menuBtn" aria-label="Mục lục">☰</button>
+      <button class="hidden" id="backBtn" aria-label="Quay lại" title="Quay lại trang trước">‹</button>
       <span class="crumb" id="crumb"></span>
       <span class="progress hidden" id="progress"><span class="track"><i></i></span><span id="progText"></span></span>
       <button id="askBtn" title="Copy câu lệnh để nhờ Claude, kèm file đang mở">Nhờ Claude</button>
@@ -352,10 +360,24 @@ function render(el, text, path, interactive) {
     if (total) { $("#progress i").style.width = (100 * done / total) + "%"; $("#progText").textContent = `${done}/${total}`; }
   }
 }
+/* nút Quay lại (app trên màn hình chính không có nút back của trình duyệt) */
+const backStack = [];
+let navBack = false;
+function viewKey() { return !$("#board").classList.contains("hidden") ? "board" : (cur ? cur.path : null); }
+function remember(k = viewKey()) { if (k && backStack[backStack.length - 1] !== k) { backStack.push(k); if (backStack.length > 50) backStack.shift(); } updBack(); }
+function updBack() { $("#backBtn").classList.toggle("hidden", !backStack.length); }
+function goBack() {
+  const k = backStack.pop(); if (!k) return updBack();
+  navBack = true;
+  try { if (k === "board") VMBoard.show(); else if (docs[k]) go(k); } finally { navBack = false; }
+  updBack();
+}
 function go(path, highlight) {
   if (editing && dirty && !confirm("Bạn có thay đổi chưa lưu. Bỏ qua?")) return;
+  const prev = viewKey();
   VMBoard.hide(); setEditing(false);
   const d = docs[path];
+  if (d && !navBack && prev && prev !== path) remember(prev);
   if (!d) { $("#view").innerHTML = `<div class="empty">Không thấy file ${esc(path)}.</div>`; return; }
   cur = d;
   if (location.hash.slice(1) !== path) history.replaceState(null, "", "#" + path);
@@ -763,7 +785,8 @@ window.boardAdapter = {
     return job;
   },
 };
-$("#boardBtn").onclick = () => { $("#app").classList.remove("nav-open"); VMBoard.show(); };
+$("#boardBtn").onclick = () => { $("#app").classList.remove("nav-open"); if (viewKey() !== "board") remember(); VMBoard.show(); };
+$("#backBtn").onclick = goBack;
 window.addEventListener("hashchange", () => { const p = decodeURIComponent(location.hash.slice(1)); if (p === "board") { if ($("#board").classList.contains("hidden")) VMBoard.show(); } else if (p && docs[p] && (!cur || p !== cur.path)) go(p); });
 document.addEventListener("visibilitychange", () => {      // quay lại tab sau lâu thì tự tải bản mới
   if (document.visibilityState === "visible" && auth && !editing && Date.now() - (window._last || 0) > 120000) {
