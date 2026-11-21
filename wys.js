@@ -77,7 +77,7 @@ css.textContent = `
 .toolbar .mode-btn{margin-left:auto}
 .editor:not(.wys) .toolbar .wys-only{display:none}
 .toolbar mark.hl{background:#ffe066;color:#3b2a00;padding:0 3px;border-radius:3px}
-#wys mark{background:#ffe066;color:#3b2a00;border-radius:2px;padding:0 1px}
+#wys mark,article mark{background:#ffe066;color:#3b2a00;border-radius:2px;padding:0 1px}
 #tblTools{display:inline-flex;align-items:center;gap:4px}
 #wys ul[data-type=taskList]{list-style:none;padding-left:4px}
 #wys li[data-checked]{display:flex;align-items:flex-start;gap:8px;margin:8px 0}
@@ -96,5 +96,5 @@ css.textContent = `
 @media (max-width:760px){.editor.wys .wys-wrap{display:block}.toolbar .mode-btn{margin-left:0}}`;
 document.head.appendChild(css);
 
-window.VMWys = {open, close, text, isWys: () => !!W.ed, insertImages: l => W.ed && W.ed.insertImages(l)};
+window.VMWys = {open, close, text, isWys: () => !!W.ed, insertImages: l => W.ed && W.ed.insertImages(l), insertLink: (t, h) => W.ed && W.ed.insertLink(t, h)};
 })();

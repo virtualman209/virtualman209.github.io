@@ -1,85 +1,57 @@
 /* Nhúng bảng / sơ đồ VM Ref vào tài liệu (2026-11-21, chủ nhà: "nhúng bảng từ VM Ref, sửa trong VM Projects cũng ảnh hưởng y hệt sửa trên VM Ref").
-   Markdown chỉ là một ảnh thường:  ![VM Ref: tên bảng](../assets/vmref-<mã bảng>.webp "vmref:<mã bảng>")
-   - Ảnh đó là ẢNH CHỤP LẦN CUỐI của bảng (dùng khi offline / không tới được mini PC, và đọc được cả trên GitHub).
+   Markdown chỉ là một link:  [▦ VM Ref: tên bảng](https://<mini PC>:8455/?board=<mã bảng>)   (trên GitHub bấm vào là mở bảng)
    - Khi xem tài liệu mà tới được mini PC: hiện chính bảng VM Ref (iframe <VM Ref>/?embed=<mã>), sửa ở đây = sửa thẳng trên VM Ref (một bản dùng chung).
-   - Mỗi lần bảng đổi, VM Ref gửi ảnh chụp mới (postMessage, WebP 1200 px) -> chỉ GIỮ LẠI bản mới nhất (localStorage "vmprojects.vrpend.<mã>"), ghi đè
-     assets/vmref-<mã>.webp (vmrefHooks.saveSnap) KHI RỜI khung bảng / rời tài liệu / ẩn app (chủ nhà 21/11: đỡ phình lịch sử Git — mỗi buổi sửa 1 bản);
-     lần sau mở app còn bản chưa lưu thì lưu nốt. vmrefHooks.cleanup() xoá ảnh chụp của bảng không còn tài liệu nào nhúng (và file .png kiểu cũ).
-   Trang chủ định nghĩa window.vmrefHooks = { saveSnap(board, blob) -> Promise, canSave() -> bool }.
+   - Ảnh chụp lần cuối (VM Ref gửi qua postMessage mỗi lần bảng đổi, WebP 1200 px) CHỈ lưu trong trình duyệt của máy này (Cache Storage "vmp-vmref"),
+     KHÔNG đưa lên repo (chủ nhà 21/11: "không cần đưa lên repo") — dùng khi offline / không tới được mini PC.
    Địa chỉ VM Ref: localStorage "vmprojects.vmref" (mặc định link https Tailscale của mini PC). */
 (() => {
 const DEF = "https://vmminipc-1.tail0f6e99.ts.net:8455";
 const base = () => { try { return (localStorage.getItem("vmprojects.vmref") || DEF).replace(/\/+$/, ""); } catch { return DEF; } };
 const origin = () => { try { return new URL(base()).origin; } catch { return ""; } };
-const hooks = () => window.vmrefHooks || {};
 const frames = new WeakMap();        // contentWindow của khung -> {w, board, st, timer}
 let pickRes = null;
 
-function asset(board) { return "assets/vmref-" + board + ".webp"; }
-function markdown(board, name, rel) { return `![VM Ref: ${(name || "bảng").replace(/[\[\]]/g, "")}](${rel(asset(board))} "vmref:${board}")`; }
+const label = name => "▦ VM Ref: " + (name || "bảng").replace(/[\[\]]/g, "");
+const link = board => base() + "/?board=" + board;
+function markdown(board, name) { return `[${label(name)}](${link(board)})`; }
+const CK = b => "https://vmp-vmref.local/" + b;
+async function snapUrl(board) { try { const r = await (await caches.open("vmp-vmref")).match(CK(board)); return r ? URL.createObjectURL(await r.blob()) : null; } catch { return null; } }
+async function saveSnap(board, png) { try { const b = await (await fetch(png)).blob(); await (await caches.open("vmp-vmref")).put(CK(board), new Response(b, {headers: {"Content-Type": b.type}})); } catch {} }
 
-/* trong trang xem: thay ảnh có title "vmref:<mã>" bằng bảng VM Ref thật */
+/* trong trang xem: link "▦ VM Ref: …" tới ?board=<mã> (hoặc ảnh title "vmref:<mã>" kiểu cũ) -> bảng VM Ref thật */
 function decorate(el) {
-  flushAll();                                         // vẽ lại trang = đã rời tài liệu / khung cũ: lưu ảnh chụp đang chờ
-  el.querySelectorAll('img[title^="vmref:"]').forEach(img => {
-    const board = img.getAttribute("title").slice(6).replace(/[^a-z0-9]/gi, ""); if (!board) return;
-    const name = (img.getAttribute("alt") || "").replace(/^VM Ref:\s*/, "") || "Bảng VM Ref";
-    const host = img.closest("p") && img.closest("p").childNodes.length === 1 ? img.closest("p") : img;
+  const found = [];
+  el.querySelectorAll("a[href]").forEach(a => { const m = /[?&]board=([a-z0-9]+)/i.exec(a.getAttribute("href") || ""); if (m && /^\s*▦?\s*VM Ref/i.test(a.textContent)) found.push([a, m[1], a.textContent.replace(/^\s*▦?\s*VM Ref:?\s*/i, "")]); });
+  el.querySelectorAll('img[title^="vmref:"]').forEach(img => found.push([img, img.getAttribute("title").slice(6), (img.getAttribute("alt") || "").replace(/^VM Ref:\s*/, "")]));
+  found.forEach(([node, board, nm]) => {
+    board = board.replace(/[^a-z0-9]/gi, ""); if (!board) return;
+    const name = nm.trim() || "Bảng VM Ref";
+    const p = node.closest("p"), host = p && p.textContent.trim() === node.textContent.trim() ? p : node;
     const w = document.createElement("div"); w.className = "vr"; w.dataset.board = board;
     w.innerHTML = `<div class="vr-bar"><span class="vr-ic">▦</span><b></b><span class="vr-st">Đang mở bảng trên mini PC…</span>
       <button type="button" class="vr-full" title="Toàn màn hình">⤢</button><a class="vr-open" target="_blank" rel="noopener" title="Mở trong VM Ref">↗</a></div>
-      <div class="vr-body"><div class="vr-fb"></div><iframe allow="clipboard-read; clipboard-write; fullscreen" referrerpolicy="no-referrer" title="Bảng VM Ref"></iframe>
+      <div class="vr-body"><div class="vr-fb"><em>Chưa có ảnh chụp của bảng này trên máy</em></div><iframe allow="clipboard-read; clipboard-write; fullscreen" referrerpolicy="no-referrer" title="Bảng VM Ref"></iframe>
       <button type="button" class="vr-cover"><span>Bấm để sửa bảng</span></button></div>`;
     w.querySelector("b").textContent = name;
-    const fb = w.querySelector(".vr-fb"); img.removeAttribute("title"); img.onclick = null; fb.appendChild(img);
-    host.replaceWith(w);
+    const fb = w.querySelector(".vr-fb"); host.replaceWith(w);
+    snapUrl(board).then(u => { if (u) { const im = new Image(); im.src = u; im.alt = name; fb.replaceChildren(im); } });
     const fr = w.querySelector("iframe"), url = base() + "/?embed=" + encodeURIComponent(board);
     w.querySelector(".vr-open").href = base() + "/?board=" + encodeURIComponent(board);
     w.querySelector(".vr-cover").onclick = () => w.classList.add("act");
     w.querySelector(".vr-full").onclick = () => {
       w.classList.toggle("full"); w.classList.add("act"); document.body.classList.toggle("vr-lock", w.classList.contains("full"));
-      if (!w.classList.contains("full")) flush(board);
     };
     const st = w.querySelector(".vr-st");
-    const timer = setTimeout(() => { if (!w.classList.contains("live")) { st.textContent = "Chưa tới được mini PC — đang xem ảnh chụp lần cuối"; w.classList.add("off"); } }, 15000);
+    const timer = setTimeout(() => { if (!w.classList.contains("live")) { st.textContent = "Chưa tới được mini PC — đang xem ảnh chụp lần cuối trên máy này"; w.classList.add("off"); } }, 15000);
     if (fr.contentWindow) frames.set(fr.contentWindow, {w, board, st, timer});
     fr.src = url;
   });
 }
-addEventListener("keydown", e => { if (e.key === "Escape") { const f = document.querySelector(".vr.full"); if (f) { f.classList.remove("full"); document.body.classList.remove("vr-lock"); flush(f.dataset.board); } } });
-// bấm ra ngoài khung đang sửa = đóng khung (hiện lại lớp "Bấm để sửa") và lưu ảnh chụp
+addEventListener("keydown", e => { if (e.key === "Escape") { const f = document.querySelector(".vr.full"); if (f) { f.classList.remove("full"); document.body.classList.remove("vr-lock"); } } });
+// bấm ra ngoài khung đang sửa = đóng khung (hiện lại lớp "Bấm để sửa", cuộn trang được)
 addEventListener("pointerdown", e => {
-  document.querySelectorAll(".vr.act:not(.full)").forEach(w => { if (!w.contains(e.target)) { w.classList.remove("act"); flush(w.dataset.board); } });
+  document.querySelectorAll(".vr.act:not(.full)").forEach(w => { if (!w.contains(e.target)) w.classList.remove("act"); });
 }, true);
-
-const sigKey = b => "vmprojects.vrsig." + b, pendKey = b => "vmprojects.vrpend." + b;
-const busy = new Set();
-function queueSnap(board, png, sig) {                 // chỉ giữ bản mới nhất, chưa ghi
-  if (!png) return;
-  try { if (sig && localStorage.getItem(sigKey(board)) === sig) { localStorage.removeItem(pendKey(board)); return; } } catch {}
-  try { localStorage.setItem(pendKey(board), JSON.stringify({png, sig})); } catch {}
-}
-async function flush(board) {
-  if (!board || busy.has(board) || !hooks().saveSnap || (hooks().canSave && !hooks().canSave())) return;
-  let p; try { p = JSON.parse(localStorage.getItem(pendKey(board)) || "null"); } catch {}
-  if (!p || !p.png) return;
-  busy.add(board);
-  try {
-    const blob = await (await fetch(p.png)).blob();
-    await hooks().saveSnap(board, blob);
-    try { if (p.sig) localStorage.setItem(sigKey(board), p.sig); const now = JSON.parse(localStorage.getItem(pendKey(board)) || "null"); if (now && now.sig === p.sig) localStorage.removeItem(pendKey(board)); } catch {}
-  } catch (e) { console.warn("vmref snap", e); }
-  finally { busy.delete(board); }
-}
-function flushAll() {
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith("vmprojects.vrpend.")) flush(k.slice(18)); } } catch {}
-}
-addEventListener("pagehide", flushAll);
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushAll(); });
-const leftover = []; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith("vmprojects.vrpend.")) leftover.push(k.slice(18)); } } catch {}
-setTimeout(() => leftover.forEach(flush), 8000);      // lần trước tắt app khi chưa kịp lưu: lưu nốt (chỉ bản còn sót từ lần trước)
-setTimeout(() => { const c = hooks().cleanup; if (!c) return; let last = 0; try { last = +localStorage.getItem("vmprojects.vrclean") || 0; } catch {}
-  if (Date.now() - last > 864e5) Promise.resolve(c()).then(() => { try { localStorage.setItem("vmprojects.vrclean", Date.now()); } catch {} }).catch(() => {}); }, 15000);
 
 addEventListener("message", e => {
   if (e.origin !== origin()) return;
@@ -93,7 +65,7 @@ addEventListener("message", e => {
     clearTimeout(f.timer); f.w.classList.add("off"); f.st.textContent = "Bảng này không còn trên VM Ref — đang xem ảnh chụp lần cuối";
   } else if (m.vmref === "snap" && m.board === f.board) {
     if (m.name) f.w.querySelector("b").textContent = m.name;
-    queueSnap(f.board, m.png, m.sig);
+    if (m.png) saveSnap(f.board, m.png);
   }
 });
 
@@ -148,5 +120,5 @@ body.vr-lock{overflow:hidden}
 img.vmref-img{outline:2px dashed #4da3ff;outline-offset:3px}`;
 document.head.appendChild(css);
 
-window.VMRef = {decorate, pick, markdown, asset, base};
+window.VMRef = {decorate, pick, markdown, label, link, base};
 })();
