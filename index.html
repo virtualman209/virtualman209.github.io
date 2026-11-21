@@ -205,6 +205,7 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
       <button type="button" class="wys-only" data-act="clear" title="Bỏ định dạng đoạn đang chọn">Bỏ định dạng</button>
         <span class="sep"></span>
         <button type="button" data-act="image" title="Chèn ảnh (cũng dán Ctrl+V hoặc kéo thả vào ô soạn thảo). Ảnh được lưu lên GitHub ngay.">🖼 Ảnh</button>
+        <button type="button" id="vmrefBtn" title="Nhúng bảng / sơ đồ VM Ref (sửa ở đây = sửa trên VM Ref)">▦ VM Ref</button>
         <input type="file" id="imgPick" accept="image/png,image/jpeg,image/gif,image/webp" multiple class="hidden">
       </div>
       <textarea id="src" spellcheck="false" aria-label="Nội dung Markdown"></textarea>
@@ -216,6 +217,7 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
 <div class="netbar hidden" id="netbar" role="status"></div>
 
 <script src="vendor/marked.umd.js"></script>
+<script src="vmref.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -359,6 +361,7 @@ function render(el, text, path, interactive) {
     imgBlob(full).then(u => { img.src = u; img.onclick = () => window.open(u, "_blank", "noopener"); })
       .catch(() => { const m = document.createElement("em"); m.textContent = `[không tải được ảnh ${full}]`; img.replaceWith(m); });
   });
+  if (interactive && window.VMRef) VMRef.decorate(el);                                  // ảnh "vmref:<mã>" → bảng VM Ref sửa trực tiếp
   VMBoard.decorate(el, {path, text, lines, interactive});                               // hạn 📅 và #doing hiện thành nhãn
   if (interactive) {
     const total = boxes.length, done = [...boxes].filter(b => b.checked).length;
@@ -721,6 +724,26 @@ src.addEventListener("drop", e => {
   src.classList.remove("drag");
   if (e.dataTransfer?.files?.length) { e.preventDefault(); uploadImages(e.dataTransfer.files); }
 });
+
+/* nhúng bảng / sơ đồ VM Ref (vmref.js) */
+window.vmrefHooks = {
+  canSave: () => canWrite && !offline,
+  async saveSnap(board, blob) {                                   // ghi đè ảnh chụp bảng assets/vmref-<mã>.png (một commit)
+    const path = VMRef.asset(board), buf = await blob.arrayBuffer();
+    let sha; try { sha = (await gh(`/repos/${auth.repo}/contents/${encPath(path)}?ref=${encodeURIComponent(branch)}`)).sha; } catch {}
+    await gh(`/repos/${auth.repo}/contents/${encPath(path)}`, {method: "PUT", body: JSON.stringify({message: `Cập nhật ảnh chụp bảng VM Ref ${board}`, content: bufB64(buf), branch, ...(sha ? {sha} : {})})});
+    imgCache.set(path, Promise.resolve(URL.createObjectURL(new Blob([buf], {type: "image/png"}))));
+    try { const box = await caches.open("vmp-img"); await box.put("https://vmp-img.local/" + encPath(path), new Response(new Blob([buf], {type: "image/png"}))); } catch {}
+  },
+};
+$("#vmrefBtn").onclick = async () => {
+  if (!cur) return;
+  const r = await VMRef.pick(); if (!r || !r.board) return;
+  const src = relTo(cur.path, VMRef.asset(r.board)), alt = "VM Ref: " + (r.name || "bảng").replace(/[\[\]]/g, "");
+  if (VMWys.isWys()) VMWys.insertImages([{src, alt, title: "vmref:" + r.board}]);
+  else insertBlock(VMRef.markdown(r.board, r.name, p => relTo(cur.path, p)));
+  dirty = true; toast("Đã chèn bảng VM Ref. Bấm Lưu — khi xem tài liệu sẽ hiện bảng để sửa trực tiếp.");
+};
 
 $("#newBtn").onclick = () => VMNav.newDoc();
 $("#askBtn").onclick = async () => {
