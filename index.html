@@ -732,8 +732,18 @@ window.vmrefHooks = {
     const path = VMRef.asset(board), buf = await blob.arrayBuffer();
     let sha; try { sha = (await gh(`/repos/${auth.repo}/contents/${encPath(path)}?ref=${encodeURIComponent(branch)}`)).sha; } catch {}
     await gh(`/repos/${auth.repo}/contents/${encPath(path)}`, {method: "PUT", body: JSON.stringify({message: `Cập nhật ảnh chụp bảng VM Ref ${board}`, content: bufB64(buf), branch, ...(sha ? {sha} : {})})});
-    imgCache.set(path, Promise.resolve(URL.createObjectURL(new Blob([buf], {type: "image/png"}))));
-    try { const box = await caches.open("vmp-img"); await box.put("https://vmp-img.local/" + encPath(path), new Response(new Blob([buf], {type: "image/png"}))); } catch {}
+    imgCache.set(path, Promise.resolve(URL.createObjectURL(new Blob([buf], {type: "image/webp"}))));
+    try { const box = await caches.open("vmp-img"); await box.put("https://vmp-img.local/" + encPath(path), new Response(new Blob([buf], {type: "image/webp"}))); } catch {}
+  },
+  async cleanup() {                                               // xoá ảnh chụp bảng không còn tài liệu nào nhúng + bản .png kiểu cũ (mỗi ngày 1 lần)
+    if (!canWrite || offline) return;
+    const all = Object.values(docs); if (!all.length || all.some(d => typeof d.text !== "string")) return;
+    const used = new Set(); for (const d of all) for (const m of d.text.matchAll(/vmref:([a-z0-9]+)/g)) used.add(m[1]);
+    let list; try { list = await gh(`/repos/${auth.repo}/contents/assets?ref=${encodeURIComponent(branch)}`); } catch { return; }
+    for (const f of Array.isArray(list) ? list : []) {
+      const m = /^vmref-([a-z0-9]+)\.(png|webp)$/.exec(f.name || ""); if (!m || (used.has(m[1]) && m[2] === "webp")) continue;
+      try { await gh(`/repos/${auth.repo}/contents/${encPath(f.path)}`, {method: "DELETE", body: JSON.stringify({message: `Xoá ảnh chụp bảng VM Ref không dùng: ${f.name}`, sha: f.sha, branch})}); } catch {}
+    }
   },
 };
 $("#vmrefBtn").onclick = async () => {
