@@ -47,6 +47,11 @@ function addCat(name, then) {
   materialize(); N.cfg.order.push(n); if (then) then(n);
   persist("Thêm danh mục: " + n); return n;
 }
+function moveCat(name, to, after) {                                   // kéo danh mục tới trước / sau danh mục khác
+  materialize(); const o = N.cfg.order.filter(c => c !== name);
+  const i = o.indexOf(to); if (i < 0) return;
+  o.splice(after ? i + 1 : i, 0, name); N.cfg.order = o; persist("Đổi vị trí danh mục: " + name);
+}
 function moveFile(path, cat) {
   const f = N.files.find(x => x.path === path); if (!f || catOf(f) === cat) return;
   materialize(); N.cfg.files[path] = cat; persist(`Chuyển ${f.title.slice(0, 40)} sang ${cat}`);
@@ -65,7 +70,7 @@ function draw(host, files, opts) {
   for (const c of list) {
     const mine = N.files.filter(f => catOf(f) === c).sort((a, b) => (b.path.endsWith("README.md") - a.path.endsWith("README.md")) || a.title.localeCompare(b.title, "vi"));
     const g = document.createElement("section"); g.className = "cat" + (fold[c] ? " closed" : ""); g.dataset.cat = c;
-    g.innerHTML = `<div class="cat-h"><button class="cat-t" aria-expanded="${!fold[c]}"><span class="chev">▾</span><span class="cat-n">${esc(c)}</span><span class="cat-c">${mine.length}</span></button>${edit ? `<button class="cat-e" title="Đổi tên, sắp xếp, xoá danh mục" aria-label="Sửa danh mục">⋯</button>` : ""}</div><div class="cat-b"></div>`;
+    g.innerHTML = `<div class="cat-h"${edit ? ' draggable="true" title="Kéo để đổi vị trí danh mục"' : ""}><button class="cat-t" aria-expanded="${!fold[c]}"><span class="chev">▾</span><span class="cat-n">${esc(c)}</span><span class="cat-c">${mine.length}</span></button>${edit ? `<button class="cat-e" title="Đổi tên, sắp xếp, xoá danh mục" aria-label="Sửa danh mục">⋯</button>` : ""}</div><div class="cat-b"></div>`;
     g.querySelector(".cat-t").onclick = () => { fold[c] = !fold[c]; saveFold(); g.classList.toggle("closed", !!fold[c]); };
     if (edit) g.querySelector(".cat-e").onclick = () => openCat(c);
     const body = g.querySelector(".cat-b");
@@ -82,10 +87,26 @@ function draw(host, files, opts) {
   }
   if (!host.dataset.dnd) {                                          // kéo thả: một lần cho cả thanh bên
     host.dataset.dnd = "1";
+    host.addEventListener("dragstart", e => {                     // kéo cả danh mục (bấm giữ tiêu đề)
+      const h = e.target.closest && e.target.closest(".cat-h"); if (!h || e.target.closest(".nrow")) return;
+      N.dragCat = h.parentElement.dataset.cat; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", N.dragCat); h.parentElement.classList.add("dragging");
+    });
+    host.addEventListener("dragover", e => {
+      if (!N.dragCat) return; const g = e.target.closest(".cat"); if (!g) return; e.preventDefault();
+      const r = g.getBoundingClientRect(), after = e.clientY > r.top + Math.min(r.height / 2, 30);
+      host.querySelectorAll(".cat.drop-b,.cat.drop-a").forEach(x => x.classList.remove("drop-b", "drop-a"));
+      if (g.dataset.cat !== N.dragCat) g.classList.add(after ? "drop-a" : "drop-b");
+    });
+    host.addEventListener("drop", e => {
+      if (!N.dragCat) return; const g = e.target.closest(".cat"); if (!g) return; e.preventDefault();
+      const name = N.dragCat, to = g.dataset.cat, after = g.classList.contains("drop-a"); N.dragCat = null;
+      host.querySelectorAll(".drop-b,.drop-a,.dragging").forEach(x => x.classList.remove("drop-b", "drop-a", "dragging"));
+      if (name === to) return; moveCat(name, to, after);
+    });
     host.addEventListener("dragstart", e => { const r = e.target.closest && e.target.closest(".nrow"); if (!r) return; N.drag = r.dataset.path; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", N.drag); r.classList.add("dragging"); });
-    host.addEventListener("dragover", e => { if (!N.drag) return; const g = e.target.closest(".cat"); if (!g) return; e.preventDefault(); host.querySelectorAll(".cat.over").forEach(x => x !== g && x.classList.remove("over")); g.classList.add("over"); });
+    host.addEventListener("dragover", e => { if (!N.drag || N.dragCat) return; const g = e.target.closest(".cat"); if (!g) return; e.preventDefault(); host.querySelectorAll(".cat.over").forEach(x => x !== g && x.classList.remove("over")); g.classList.add("over"); });
     host.addEventListener("drop", e => { if (!N.drag) return; const g = e.target.closest(".cat"); if (!g) return; e.preventDefault(); const p = N.drag; N.drag = null; moveFile(p, g.dataset.cat); });
-    host.addEventListener("dragend", () => { N.drag = null; host.querySelectorAll(".over,.dragging").forEach(x => x.classList.remove("over", "dragging")); });
+    host.addEventListener("dragend", () => { N.drag = null; N.dragCat = null; host.querySelectorAll(".drop-b,.drop-a").forEach(x => x.classList.remove("drop-b", "drop-a")); host.querySelectorAll(".over,.dragging").forEach(x => x.classList.remove("over", "dragging")); });
   }
 }
 
@@ -196,6 +217,8 @@ css.textContent = `
 .nav-add:hover{color:var(--accent);border-color:var(--accent)}
 .cat{margin:0 8px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden}
 .cat.over{outline:2px dashed var(--accent);outline-offset:-2px}
+.cat-h[draggable=true]{cursor:grab}.cat.dragging{opacity:.4}
+.cat.drop-b{box-shadow:0 -3px 0 var(--accent)}.cat.drop-a{box-shadow:0 3px 0 var(--accent)}
 .cat-h{display:flex;align-items:center;background:var(--bg);border-bottom:1px solid var(--line)}
 .cat.closed .cat-h{border-bottom:0}.cat.closed .cat-b{display:none}
 .cat-t{flex:1;display:flex;align-items:center;gap:8px;border:0;background:none;padding:9px 10px;text-align:left;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);min-width:0}
