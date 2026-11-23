@@ -113,11 +113,13 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
 .netbar{position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:60;background:#fff4d6;color:#6b4e00;border:1px solid #f0d58a;border-radius:999px;padding:5px 14px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.12);max-width:92vw;text-align:center}
 .netbar.hidden{display:none}
 .toast{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));left:auto;max-width:420px;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:8px;padding:12px 16px;box-shadow:0 8px 30px rgba(0,0,0,.15);white-space:pre-wrap;font-size:14px;z-index:9}
+.scrim{display:none}
 .toast.err{border-left-color:var(--danger)}
 @media (max-width:760px){
   .app{grid-template-columns:1fr}
   aside{position:fixed;inset:0 25% 0 0;z-index:5;box-shadow:0 0 40px rgba(0,0,0,.3);transform:translateX(-105%);transition:transform .2s}
   .app.nav-open aside{transform:none}
+  .app.nav-open .scrim{display:block;position:fixed;inset:0;z-index:4;background:rgba(0,0,0,.35)}
   .menu{display:inline-block}
   article{padding:20px 18px 80px}
   .editor{grid-template-columns:1fr}.editor .scroll{display:none}
@@ -164,6 +166,7 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
     <nav id="nav" aria-label="Tài liệu"></nav>
     <div class="side-foot"><span id="status">Đang tải…</span><button id="reloadBtn" title="Tải lại từ GitHub">Tải lại</button><button id="logoutBtn">Thoát</button></div>
   </aside>
+  <div class="scrim" id="scrim"></div>
   <main>
     <div class="bar">
       <button class="menu" id="menuBtn" aria-label="Mục lục">☰</button>
@@ -750,6 +753,7 @@ $("#logoutBtn").onclick = () => {
   store(null); try { localStorage.removeItem(SNAP); localStorage.removeItem(OUTQ); } catch {} if (self.caches) caches.delete("vmp-img"); location.reload();
 };
 $("#menuBtn").onclick = () => $("#app").classList.toggle("nav-open");
+$("#scrim").onclick = () => $("#app").classList.remove("nav-open");   // điện thoại: chạm vùng tối bên phải để đóng mục lục
 
 /* ---------------- bảng việc: đọc / ghi checklist qua GitHub API ---------------- */
 window.rerenderDoc = () => { if (!editing) { if (cur && docs[cur.path]) render($("#view"), docs[cur.path].text, cur.path, true); } };
