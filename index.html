@@ -102,6 +102,7 @@ article li.task.done{color:var(--muted)}
 article .flash{animation:flash 1.6s ease-out}
 @keyframes flash{from{background:var(--warn-soft)}to{background:transparent}}
 .empty{color:var(--muted);text-align:center;padding:80px 20px}
+.dghost{flex:1;min-height:0;display:flex;flex-direction:column}.dghost>.dg-root{flex:1}
 article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--line);cursor:zoom-in;display:block;margin:12px 0;min-height:24px;background:var(--bg)}
 .editor{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(0,1fr);flex:1;min-height:0}
 .toolbar{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
@@ -179,6 +180,7 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
       <button id="cancelBtn" class="hidden">Huỷ</button>
     </div>
     <div class="scroll" id="viewScroll"><article id="view"><div class="empty">Đang tải…</div></article></div>
+    <div class="dghost hidden" id="dgHost"></div>
     <div class="board hidden" id="board"></div>
     <div class="editor hidden" id="editor">
       <div class="toolbar" id="toolbar" role="toolbar" aria-label="Định dạng văn bản">
@@ -208,6 +210,7 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
       <button type="button" class="wys-only" data-act="clear" title="Bỏ định dạng đoạn đang chọn">Bỏ định dạng</button>
         <span class="sep"></span>
         <button type="button" data-act="image" title="Chèn ảnh (cũng dán Ctrl+V hoặc kéo thả vào ô soạn thảo). Ảnh được lưu lên GitHub ngay.">🖼 Ảnh</button>
+        <button type="button" id="dgBtn" title="Chèn sơ đồ kiểu Canva (bấm vào sơ đồ khi xem tài liệu để vẽ)">◇ Sơ đồ</button>
         <button type="button" id="vmrefBtn" title="Nhúng bảng / sơ đồ VM Ref (sửa ở đây = sửa trên VM Ref)">▦ VM Ref</button>
         <input type="file" id="imgPick" accept="image/png,image/jpeg,image/gif,image/webp" multiple class="hidden">
       </div>
@@ -221,6 +224,7 @@ article img{max-width:100%;height:auto;border-radius:6px;border:1px solid var(--
 
 <script src="vendor/marked.umd.js"></script>
 <script src="vmref.js"></script>
+<script src="diagram.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -297,7 +301,7 @@ async function loadRemote() {
 function drawNav() {
   const q = $("#q").value.trim();
   if (q) return drawSearch(q);
-  VMNav.draw($("#nav"), Object.values(docs), {active: p => !!cur && cur.path === p, open: p => { go(p); $("#app").classList.remove("nav-open"); }});
+  VMNav.draw($("#nav"), Object.values(docs).map(d => (d.dg = !!(window.VMDiagram && VMDiagram.isFile(d.text)), d)), {active: p => !!cur && cur.path === p, open: p => { go(p); $("#app").classList.remove("nav-open"); }});
 }
 function navItem(title, path, sub, onclick) {
   const b = document.createElement("button");
@@ -364,6 +368,8 @@ function render(el, text, path, interactive) {
     imgBlob(full).then(u => { img.src = u; img.onclick = () => window.open(u, "_blank", "noopener"); })
       .catch(() => { const m = document.createElement("em"); m.textContent = `[không tải được ảnh ${full}]`; img.replaceWith(m); });
   });
+  if (window.VMDiagram) VMDiagram.decorate(el, {interactive: interactive && canWrite, title: titleOf(text, path),   // khối ```vmdiagram → sơ đồ, bấm để vẽ
+    save: (k, data) => saveDiagram(path, k, data), onClosed: () => window.rerenderDoc && window.rerenderDoc()});
   if (interactive && window.VMRef) VMRef.decorate(el);                                  // ảnh "vmref:<mã>" → bảng VM Ref sửa trực tiếp
   VMBoard.decorate(el, {path, text, lines, interactive});                               // hạn 📅 và #doing hiện thành nhãn
   if (interactive) {
@@ -387,6 +393,7 @@ function goBack() {
 function go(path, highlight) {
   if (editing && dirty && !confirm("Bạn có thay đổi chưa lưu. Bỏ qua?")) return;
   const prev = viewKey();
+  leaveDiagram();
   VMBoard.hide(); setEditing(false);
   const d = docs[path];
   if (d && !navBack && prev && prev !== path) remember(prev);
@@ -394,6 +401,7 @@ function go(path, highlight) {
   cur = d;
   if (location.hash.slice(1) !== path) history.replaceState(null, "", "#" + path);
   $("#crumb").textContent = path;
+  if (window.VMDiagram && VMDiagram.isFile(d.text)) { openDiagramFile(); drawNav(); return; }
   render($("#view"), d.text, d.path, true);
   drawNav(); $("#viewScroll").scrollTop = 0;
   if (highlight) {
@@ -402,6 +410,41 @@ function go(path, highlight) {
     if (el) { el.scrollIntoView({block: "center"}); el.classList.add("flash"); }
   }
 }
+
+/* ---------------- sơ đồ kiểu Canva (diagram.js): file sơ đồ mở ra là vẽ luôn; khối sơ đồ trong tài liệu bấm vào để vẽ ----------------
+   Mỗi lần lưu là một commit, nên sơ đồ gom thay đổi lại 4 giây mới lưu (rời sơ đồ / bấm Xong thì lưu ngay). */
+let dgEd = null;
+function saveDiagram(path, k, data, title) {               // chỉ thay đúng khối sơ đồ thứ k (và tên nếu có) trong bản mới nhất trên máy
+  const job = saving.then(async () => {
+    const d = docs[path]; if (!d) throw new Error("Không thấy file " + path);
+    let text = VMDiagram.replaceBlock(d.text, k, data); if (title != null) text = VMDiagram.setTitle(text, title);
+    if (text === d.text) return;
+    d.sha = await commit(path, text, d.sha, title != null ? `Đổi tên sơ đồ: ${VMDiagram.titleOf(text)}` : `Sửa sơ đồ ${path} từ web`);
+    d.text = text; d.title = titleOf(text, path);
+  });
+  saving = job.catch(() => {});
+  return job.catch(async e => {
+    toast("Chưa lưu được sơ đồ: " + e.message, true, 7000);
+    if (e.status === 409 || e.status === 422) { try { await loadAll(); } catch {} }
+    throw e;
+  });
+}
+function openDiagramFile() {
+  const path = cur.path, b = VMDiagram.blocks(cur.text)[0];
+  $("#viewScroll").classList.add("hidden"); $("#editBtn").classList.add("hidden"); $("#progress").classList.add("hidden");
+  $("#dgHost").classList.remove("hidden");
+  dgEd = VMDiagram.mount($("#dgHost"), {data: VMDiagram.parse(b ? b.json : "{}"), title: titleOf(cur.text, path), saveDelay: 4000,
+    save: canWrite ? data => saveDiagram(path, 0, data) : null, saveTitle: canWrite ? t => saveDiagram(path, 0, null, t).then(drawNav) : null});
+}
+function leaveDiagram() {
+  if (!dgEd) return;
+  const ed = dgEd; dgEd = null;
+  ed.flush(); ed.destroy();
+  $("#dgHost").classList.add("hidden"); $("#viewScroll").classList.remove("hidden"); $("#editBtn").classList.remove("hidden");
+}
+window.leaveDiagram = leaveDiagram;
+window.addEventListener("pagehide", () => { if (dgEd) dgEd.flush(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && dgEd) dgEd.flush(); });
 
 /* ---------------- sửa & lưu (commit thẳng lên GitHub) ---------------- */
 async function ghPut(path, text, sha, message) {
@@ -729,6 +772,13 @@ src.addEventListener("drop", e => {
 });
 
 /* nhúng bảng / sơ đồ VM Ref (vmref.js): chèn một link, khi xem thành bảng VM Ref sửa trực tiếp; ảnh chụp chỉ lưu trong máy, không lên repo */
+$("#dgBtn").onclick = () => {
+  if (!cur) return;
+  const blockMd = VMDiagram.block({items: VMDiagram.template("Ý TƯỞNG CHÍNH")});
+  if (VMWys.isWys()) VMWys.open(VMWys.text().replace(/\s*$/, "\n\n") + blockMd + "\n", cur.path);
+  else insertBlock(blockMd);
+  dirty = true; toast("Đã chèn sơ đồ mẫu. Bấm Lưu, rồi bấm vào sơ đồ trong tài liệu để vẽ như Canva.", false, 6000);
+};
 $("#vmrefBtn").onclick = async () => {
   if (!cur) return;
   const r = await VMRef.pick(); if (!r || !r.board) return;
@@ -759,14 +809,14 @@ $("#scrim").onclick = () => $("#app").classList.remove("nav-open");   // điện
 window.rerenderDoc = () => { if (!editing) { if (cur && docs[cur.path]) render($("#view"), docs[cur.path].text, cur.path, true); } };
 let navSha = null, navCfg = null;
 window.navAdapter = {
-  async create(path, title) {
+  async create(path, title, body) {
     if (docs[path]) throw new Error("Đã có tệp " + path);
-    const text = `# ${title}\n\n`;
-    const sha = await commit(path, text, null, `Tạo văn bản ${title}`);
+    const text = typeof body === "string" && body.startsWith("# ") ? body : `# ${title}\n\n`;
+    const sha = await commit(path, text, null, (text === body ? "Tạo sơ đồ " : "Tạo văn bản ") + title);
     docs[path] = {path, sha, text, title: titleOf(text, path), dir: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""};
     setTimeout(persist, 0);
   },
-  openNew(path) { $("#app").classList.remove("nav-open"); drawNav(); go(path); setEditing(true); },
+  openNew(path) { $("#app").classList.remove("nav-open"); drawNav(); go(path); if (!dgEd) setEditing(true); },
   async load() {
     if (offline || outq().some(x => x.path === "nav.json")) return navCfg;
     try { const r = await gh(`/repos/${auth.repo}/contents/nav.json?ref=${encodeURIComponent(branch)}`); navSha = r.sha; navCfg = JSON.parse(b64decode(r.content.replace(/\s/g, ""))); persist(); return navCfg; }

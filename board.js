@@ -399,6 +399,7 @@ async function load() {
   draw();
 }
 async function show() {
+  if (window.leaveDiagram) await window.leaveDiagram();
   S.doc = null;
   if (editing && dirty && !confirm("Bạn có thay đổi chưa lưu. Bỏ qua?")) return;
   setEditing(false); cur = null; drawNav();

@@ -78,7 +78,7 @@ function draw(host, files, opts) {
     for (const f of mine) {
       const row = document.createElement("div"); row.className = "nrow"; row.draggable = edit; row.dataset.path = f.path;
       const b = document.createElement("button"); b.className = "item" + (N.opts.active(f.path) ? " active" : "");
-      b.innerHTML = `${esc(f.title)}<small>${esc(f.path)}</small>`; b.onclick = () => N.opts.open(f.path);
+      b.innerHTML = `${f.dg ? '<span class="nav-dg" title="Sơ đồ">◇</span> ' : ""}${esc(f.title)}<small>${esc(f.path)}</small>`; b.onclick = () => N.opts.open(f.path);
       row.appendChild(b);
       if (edit) { const m = document.createElement("button"); m.className = "nmv"; m.title = "Chuyển sang danh mục khác"; m.setAttribute("aria-label", "Chuyển danh mục"); m.textContent = "⇄"; m.onclick = e => { e.stopPropagation(); openMove(f.path); }; row.appendChild(m); }
       body.appendChild(row);
@@ -173,14 +173,17 @@ function pathFor(title, cat) {
 function newDoc() {
   if (!canEdit() || !window.navAdapter.create) { toast("Không tạo được văn bản (chỉ có quyền đọc).", true); return; }
   const d = dialog(), list = cats(), curCat = (N.opts && N.files.find(f => N.opts.active(f.path))) ? catOf(N.files.find(f => N.opts.active(f.path))) : list[0];
-  d.innerHTML = `<div class="dl"><h3>Văn bản mới</h3>
-    <div class="lbl">Tên văn bản</div><input class="dl-title" id="ndTitle" maxlength="120" placeholder="Ví dụ: Ý tưởng boss chương 2" autocomplete="off">
+  d.innerHTML = `<div class="dl"><h3>Tạo mới</h3>
+    <div class="nd-kind" role="radiogroup" aria-label="Loại"><button type="button" class="nd-k on" data-k="doc">📝 Văn bản</button><button type="button" class="nd-k" data-k="dg">◇ Sơ đồ</button></div>
+    <div class="nd-tpl hidden"><label><input type="radio" name="ndTpl" value="1" checked> Bắt đầu từ sơ đồ mẫu (ý chính → 3 nhánh → ý con)</label><label><input type="radio" name="ndTpl" value="0"> Sơ đồ trống</label></div>
+    <div class="lbl">Tên</div><input class="dl-title" id="ndTitle" maxlength="120" placeholder="Ví dụ: Ý tưởng boss chương 2" autocomplete="off">
     <div class="lbl">Nằm trong danh mục</div>
     <select id="ndCat" class="nd-sel">${list.map(c => `<option value="${esc(c)}"${c === curCat ? " selected" : ""}>${esc(c)}</option>`).join("")}<option value="__new">＋ Danh mục mới…</option></select>
     <input class="dl-title nd-new hidden" id="ndNew" maxlength="40" placeholder="Tên danh mục mới" autocomplete="off">
     <div class="dl-note" id="ndPath"></div>
     <div class="dl-foot"><button data-a="x">Huỷ</button><button class="primary" data-a="ok">Tạo và soạn ›</button></div></div>`;
   const $d = s => d.querySelector(s), isNew = () => $d("#ndCat").value === "__new";
+  let kind = "doc";
   const show = () => {
     $d("#ndNew").classList.toggle("hidden", !isNew());
     const t = $d("#ndTitle").value.trim(), cat = isNew() ? ($d("#ndNew").value.trim() || "…") : $d("#ndCat").value;
@@ -190,13 +193,14 @@ function newDoc() {
   const submit = async () => {
     if (busy) return;
     const title = $d("#ndTitle").value.trim().replace(/\s+/g, " ");
-    if (!title) { toast("Hãy gõ tên văn bản.", true); $d("#ndTitle").focus(); return; }
+    if (!title) { toast(kind === "dg" ? "Hãy gõ tên sơ đồ." : "Hãy gõ tên văn bản.", true); $d("#ndTitle").focus(); return; }
     let cat = $d("#ndCat").value, fresh = false;
     if (cat === "__new") { cat = cleanName($d("#ndNew").value); if (!cat) { $d("#ndNew").focus(); if (!$d("#ndNew").value.trim()) toast("Hãy gõ tên danh mục mới.", true); return; } fresh = true; }
     const path = pathFor(title, fresh ? "\u0000" : cat);
     busy = true; $d('[data-a="ok"]').disabled = true; $d('[data-a="ok"]').textContent = "Đang tạo…";
     try {
-      await window.navAdapter.create(path, title);
+      const tpl = (d.querySelector('input[name="ndTpl"]:checked') || {}).value === "1";
+      await window.navAdapter.create(path, title, kind === "dg" && window.VMDiagram ? window.VMDiagram.newFileText(title, tpl) : undefined);
       materialize(); if (fresh && !N.cfg.order.includes(cat)) N.cfg.order.push(cat);
       N.cfg.files[path] = cat; if (fold[cat]) { delete fold[cat]; saveFold(); }
       persist(fresh ? `Thêm danh mục ${cat}, tạo ${title.slice(0, 40)}` : `Xếp ${title.slice(0, 40)} vào ${cat}`);
@@ -204,7 +208,16 @@ function newDoc() {
       window.navAdapter.openNew(path);
     } catch (e) { toast(e.message, true, 6000); busy = false; $d('[data-a="ok"]').disabled = false; $d('[data-a="ok"]').textContent = "Tạo và soạn ›"; }
   };
-  d.onclick = e => { if (e.target === d) return d.close(); const b = e.target.closest("button"); if (!b) return; if (b.dataset.a === "x") d.close(); else if (b.dataset.a === "ok") submit(); };
+  d.onclick = e => {
+    if (e.target === d) return d.close(); const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.k) {                                                // Văn bản / Sơ đồ
+      kind = b.dataset.k; d.querySelectorAll(".nd-k").forEach(x => x.classList.toggle("on", x === b));
+      $d(".nd-tpl").classList.toggle("hidden", kind !== "dg");
+      $d("#ndTitle").placeholder = kind === "dg" ? "Ví dụ: Sơ đồ nhân vật Dunmorn" : "Ví dụ: Ý tưởng boss chương 2";
+      $d('[data-a="ok"]').textContent = kind === "dg" ? "Tạo và vẽ ›" : "Tạo và soạn ›"; $d("#ndTitle").focus(); return;
+    }
+    if (b.dataset.a === "x") d.close(); else if (b.dataset.a === "ok") submit();
+  };
   d.oninput = show; d.onchange = () => { show(); if (isNew()) $d("#ndNew").focus(); };
   d.onkeydown = e => { if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); submit(); } };
   show(); d.showModal(); $d("#ndTitle").focus();
@@ -236,6 +249,10 @@ css.textContent = `
 #navDlg{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);padding:0;width:min(380px,92vw)}
 #navDlg::backdrop{background:rgba(0,0,0,.4)}
 .nav-list{display:flex;flex-direction:column;gap:6px;margin:10px 0 4px;max-height:50vh;overflow:auto}
+.nd-kind{display:flex;gap:6px;margin:10px 0 4px}.nd-k{flex:1;padding:9px 10px;border-radius:10px;font-weight:500}
+.nd-k.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.nd-tpl{display:flex;flex-direction:column;gap:4px;margin-top:8px;font-size:13px}.nd-tpl label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.nav-dg{color:#8b3dff;font-weight:700}
 .nd-sel{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:16px}
 .nd-new{margin-top:8px}#navDlg .dl-title{font-size:16px}
 #navDlg .lbl{font-size:12px;color:var(--muted);margin:12px 0 4px}#navDlg .dl{padding:18px 20px}#navDlg h3{margin:0 0 4px}
