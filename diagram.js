@@ -522,7 +522,7 @@ function mount(host, opts = {}) {
       const A = anchor(t, sd), off = 24 * z, cx = A.x + A.d.x * off, cy = A.y + A.d.y * off, r = 10 * z;
       const bx = Math.min(A.x, cx) - (A.d.x ? 0 : r), by = Math.min(A.y, cy) - (A.d.y ? 0 : r);
       s += `<rect data-bridge="${t.id}" x="${bx}" y="${by}" width="${A.d.x ? off : 2 * r}" height="${A.d.y ? off : 2 * r}" fill="transparent"/>`;
-      s += `<g data-cn="${sd}" data-src="${t.id}" style="cursor:crosshair"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#fff" stroke="${SEL}" stroke-width="${1.6 * z}"/><path d="M${cx - 4.5 * z},${cy}h${9 * z}M${cx},${cy - 4.5 * z}v${9 * z}" stroke="${SEL}" stroke-width="${1.8 * z}" stroke-linecap="round"/></g>`;
+      s += `<g data-cn="${sd}" data-src="${t.id}" class="dg-cn"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#fff" stroke="${SEL}" stroke-width="${1.6 * z}"/><path d="M${cx - 4.5 * z},${cy}h${9 * z}M${cx},${cy - 4.5 * z}v${9 * z}" stroke="${SEL}" stroke-width="${1.8 * z}" stroke-linecap="round"/></g>`;
     }
     return s;
   }
@@ -1271,6 +1271,7 @@ css.textContent = `
 .dg-stage{flex:1;min-height:0;position:relative;overflow:hidden;outline:none;background-color:#fff;background-image:radial-gradient(#dcdfe6 1.1px,transparent 1.3px);touch-action:none;user-select:none;-webkit-user-select:none}
 .dg-stage.dg-cross .dg-svg{cursor:crosshair}.dg-stage.dg-handc .dg-svg{cursor:grab}.dg-stage.dg-panning .dg-svg{cursor:grabbing}
 .dg-svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.dg-cn{cursor:default}.dg-cn circle{transition:fill .12s}.dg-cn:hover circle{fill:#e4dcfb}
 .dg-tools{position:absolute;left:12px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:2px;padding:6px;background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(20,20,40,.14),0 0 0 1px rgba(20,20,40,.05);z-index:4}
 .dg-tools button{display:flex;flex-direction:column;align-items:center;gap:2px;width:54px;padding:7px 2px 5px;border:0;background:none;border-radius:10px;cursor:pointer;font-size:11px;color:#3a3e4c}
 .dg-tools button:hover{background:#f1f1f5}.dg-tools button.on,.dg-tools button.open{background:#f1effd;color:#5b2bd1}
