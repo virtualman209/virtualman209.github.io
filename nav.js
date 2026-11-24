@@ -6,7 +6,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const GROUPS = {"": "Chung", "projects/dunmorn": "Dunmorn", "tools": "Công cụ", "notes": "Ghi chú"};
 const ORDER = ["projects/dunmorn", "", "tools", "notes"];
-const N = {cfg: {order: null, files: {}}, files: [], opts: null, host: null, drag: null, cat: null};
+const N = {cfg: {order: null, files: {}, sort: {}}, files: [], opts: null, host: null, drag: null, cat: null};
 const defCat = f => GROUPS[f.dir] ?? f.dir;
 const canEdit = () => !!window.navAdapter && (typeof canWrite === "undefined" || canWrite);
 let fold = {}; try { fold = JSON.parse(localStorage.getItem("vm.navfold") || "{}") || {}; } catch {}
@@ -22,7 +22,28 @@ function cats() {                                                   // danh sác
   return out.concat(derived);
 }
 function catOf(f) { const c = N.cfg.files[f.path]; return c && cats().includes(c) ? c : defCat(f); }
-function materialize() { const list = cats(), m = {}; N.files.forEach(f => { m[f.path] = catOf(f); }); N.cfg = {order: list, files: m}; }
+function materialize() { const list = cats(), m = {}; N.files.forEach(f => { m[f.path] = catOf(f); }); N.cfg = {order: list, files: m, sort: N.cfg.sort || {}}; }
+/* thứ tự tệp trong từng danh mục (nav.json "sort": {danh mục: [đường dẫn…]}); tệp chưa xếp đứng sau, theo tên */
+function sortFiles(c, list) {
+  const def = list.sort((a, b) => (b.path.endsWith("README.md") - a.path.endsWith("README.md")) || a.title.localeCompare(b.title, "vi"));
+  const sq = (N.cfg.sort && N.cfg.sort[c]) || []; if (!sq.length) return def;
+  const rank = p => { const i = sq.indexOf(p); return i < 0 ? 1e6 : i; };
+  return def.map((f, i) => [f, i]).sort((a, b) => rank(a[0].path) - rank(b[0].path) || a[1] - b[1]).map(x => x[0]);
+}
+function placeFile(path, cat, target, after) {                      // đưa tệp tới trước / sau tệp khác (cùng hoặc khác danh mục)
+  const f = N.files.find(x => x.path === path); if (!f || path === target) return;
+  materialize();
+  const from = catOf(f), list = sortFiles(cat, N.files.filter(x => catOf(x) === cat)).map(x => x.path).filter(p => p !== path);
+  let i = target ? list.indexOf(target) : -1; i = i < 0 ? list.length : i + (after ? 1 : 0);
+  list.splice(i, 0, path); N.cfg.sort[cat] = list; N.cfg.files[path] = cat;
+  persist(from === cat ? `Đổi thứ tự: ${f.title.slice(0, 40)}` : `Chuyển ${f.title.slice(0, 40)} sang ${cat}`);
+}
+function stepFile(path, d) {                                         // lên / xuống một bậc trong danh mục
+  const f = N.files.find(x => x.path === path); if (!f) return;
+  const cat = catOf(f), list = sortFiles(cat, N.files.filter(x => catOf(x) === cat)).map(x => x.path), i = list.indexOf(path), j = i + d;
+  if (j < 0 || j >= list.length) return;
+  placeFile(path, cat, list[j], d > 0);
+}
 let chain = Promise.resolve();
 function persist(message) {
   const snap = JSON.parse(JSON.stringify(N.cfg));
@@ -32,7 +53,7 @@ function persist(message) {
 }
 async function load() {
   if (!window.navAdapter) return;
-  try { const d = await window.navAdapter.load(); N.cfg = d && Array.isArray(d.order) && d.files ? {order: d.order, files: d.files} : {order: null, files: {}}; }
+  try { const d = await window.navAdapter.load(); N.cfg = d && Array.isArray(d.order) && d.files ? {order: d.order, files: d.files, sort: d.sort && typeof d.sort === "object" ? d.sort : {}} : {order: null, files: {}, sort: {}}; }
   catch (e) { toast(e.message, true, 5000); }
   draw();
 }
@@ -68,7 +89,7 @@ function draw(host, files, opts) {
     host.appendChild(add);
   }
   for (const c of list) {
-    const mine = N.files.filter(f => catOf(f) === c).sort((a, b) => (b.path.endsWith("README.md") - a.path.endsWith("README.md")) || a.title.localeCompare(b.title, "vi"));
+    const mine = sortFiles(c, N.files.filter(f => catOf(f) === c));
     const g = document.createElement("section"); g.className = "cat" + (fold[c] ? " closed" : ""); g.dataset.cat = c;
     g.innerHTML = `<div class="cat-h"${edit ? ' draggable="true" title="Kéo để đổi vị trí danh mục"' : ""}><button class="cat-t" aria-expanded="${!fold[c]}"><span class="chev">▾</span><span class="cat-n">${esc(c)}</span><span class="cat-c">${mine.length}</span></button>${edit ? `<button class="cat-e" title="Đổi tên, sắp xếp, xoá danh mục" aria-label="Sửa danh mục">⋯</button>` : ""}</div><div class="cat-b"></div>`;
     g.querySelector(".cat-t").onclick = () => { fold[c] = !fold[c]; saveFold(); g.classList.toggle("closed", !!fold[c]); };
@@ -80,7 +101,7 @@ function draw(host, files, opts) {
       const b = document.createElement("button"); b.className = "item" + (N.opts.active(f.path) ? " active" : "");
       b.innerHTML = `${f.dg ? '<span class="nav-dg" title="Sơ đồ">◇</span> ' : ""}${esc(f.title)}<small>${esc(f.path)}</small>`; b.onclick = () => N.opts.open(f.path);
       row.appendChild(b);
-      if (edit) { const m = document.createElement("button"); m.className = "nmv"; m.title = "Chuyển sang danh mục khác"; m.setAttribute("aria-label", "Chuyển danh mục"); m.textContent = "⇄"; m.onclick = e => { e.stopPropagation(); openMove(f.path); }; row.appendChild(m); }
+      if (edit) { const m = document.createElement("button"); m.className = "nmv"; m.title = "Đổi tên, xoá, chuyển danh mục, đổi thứ tự (hoặc chuột phải vào tệp)"; m.setAttribute("aria-label", "Tuỳ chọn tệp"); m.textContent = "⋯"; m.onclick = e => { e.stopPropagation(); const r = m.getBoundingClientRect(); fileMenu(f.path, r.left, r.bottom + 4); }; row.appendChild(m); }
       body.appendChild(row);
     }
     host.appendChild(g);
@@ -104,10 +125,110 @@ function draw(host, files, opts) {
       if (name === to) return; moveCat(name, to, after);
     });
     host.addEventListener("dragstart", e => { const r = e.target.closest && e.target.closest(".nrow"); if (!r) return; N.drag = r.dataset.path; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", N.drag); r.classList.add("dragging"); });
-    host.addEventListener("dragover", e => { if (!N.drag || N.dragCat) return; const g = e.target.closest(".cat"); if (!g) return; e.preventDefault(); host.querySelectorAll(".cat.over").forEach(x => x !== g && x.classList.remove("over")); g.classList.add("over"); });
-    host.addEventListener("drop", e => { if (!N.drag) return; const g = e.target.closest(".cat"); if (!g) return; e.preventDefault(); const p = N.drag; N.drag = null; moveFile(p, g.dataset.cat); });
+    host.addEventListener("dragover", e => {                       // kéo tệp: thả lên tệp khác = xếp trước / sau tệp đó; thả vào danh mục = cuối danh mục
+      if (!N.drag || N.dragCat) return; const g = e.target.closest(".cat"); if (!g) return; e.preventDefault();
+      host.querySelectorAll(".cat.over").forEach(x => x !== g && x.classList.remove("over")); g.classList.add("over");
+      host.querySelectorAll(".nrow.drop-b,.nrow.drop-a").forEach(x => x.classList.remove("drop-b", "drop-a"));
+      const r = e.target.closest(".nrow"); if (r && r.dataset.path !== N.drag) { const b = r.getBoundingClientRect(); r.classList.add(e.clientY > b.top + b.height / 2 ? "drop-a" : "drop-b"); }
+    });
+    host.addEventListener("drop", e => {
+      if (!N.drag) return; const g = e.target.closest(".cat"); if (!g) return; e.preventDefault();
+      const p = N.drag, r = e.target.closest(".nrow"); N.drag = null;
+      if (r && r.dataset.path !== p) placeFile(p, g.dataset.cat, r.dataset.path, r.classList.contains("drop-a"));
+      else if (!r) moveFile(p, g.dataset.cat);
+      host.querySelectorAll(".drop-b,.drop-a,.over,.dragging").forEach(x => x.classList.remove("drop-b", "drop-a", "over", "dragging"));
+    });
+    host.addEventListener("contextmenu", e => {                   // chuột phải trong mục lục: không hiện menu của trình duyệt
+      e.preventDefault(); if (!canEdit()) return;
+      const r = e.target.closest(".nrow"); if (r) return fileMenu(r.dataset.path, e.clientX, e.clientY);
+      const g = e.target.closest(".cat"); if (g) return catMenu(g.dataset.cat, e.clientX, e.clientY);
+    });
     host.addEventListener("dragend", () => { N.drag = null; N.dragCat = null; host.querySelectorAll(".drop-b,.drop-a").forEach(x => x.classList.remove("drop-b", "drop-a")); host.querySelectorAll(".over,.dragging").forEach(x => x.classList.remove("over", "dragging")); });
   }
+}
+
+/* ---------------- menu chuột phải: tệp và danh mục ---------------- */
+function closeMenu() { const m = document.getElementById("navMenu"); if (m) m.remove(); }
+function popMenu(x, y, rows) {
+  closeMenu();
+  const m = document.createElement("div"); m.id = "navMenu"; m.setAttribute("role", "menu");
+  rows.forEach((r, i) => {
+    if (!r) { m.appendChild(document.createElement("hr")); return; }
+    const b = document.createElement("button"); b.type = "button"; b.className = r.danger ? "danger" : ""; b.disabled = !!r.off;
+    b.innerHTML = `<span class="ic">${r.ic || ""}</span><span>${esc(r.t)}</span>`; b.onclick = () => { closeMenu(); r.fn(); }; m.appendChild(b); void i;
+  });
+  document.body.appendChild(m); menuAt = Date.now();
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(4, Math.min(x, innerWidth - w - 4)) + "px"; m.style.top = Math.max(4, Math.min(y, innerHeight - h - 4)) + "px";
+  m.querySelector("button:not(:disabled)")?.focus();
+}
+addEventListener("pointerdown", e => { const m = document.getElementById("navMenu"); if (m && !m.contains(e.target)) closeMenu(); }, true);
+addEventListener("keydown", e => { if (e.key === "Escape") closeMenu(); });
+addEventListener("blur", closeMenu); addEventListener("resize", closeMenu);
+let menuAt = 0;
+document.addEventListener("scroll", () => { if (Date.now() - menuAt > 300) closeMenu(); }, true);
+function fileMenu(path, x, y) {
+  const f = N.files.find(z => z.path === path); if (!f) return;
+  const cat = catOf(f), list = sortFiles(cat, N.files.filter(z => catOf(z) === cat)).map(z => z.path), i = list.indexOf(path), ad = window.navAdapter || {};
+  popMenu(x, y, [
+    {t: "Mở", ic: "↗", fn: () => N.opts.open(path)},
+    {t: "Sửa tên…", ic: "✎", fn: () => renameFile(path), off: !ad.rename},
+    {t: "Chuyển sang danh mục khác…", ic: "⇄", fn: () => openMove(path)},
+    null,
+    {t: "Lên trên", ic: "▲", fn: () => stepFile(path, -1), off: i <= 0},
+    {t: "Xuống dưới", ic: "▼", fn: () => stepFile(path, 1), off: i >= list.length - 1},
+    null,
+    {t: "Xoá tệp…", ic: "🗑", danger: true, fn: () => deleteFile(path), off: !ad.remove},
+  ]);
+}
+function catMenu(name, x, y) {
+  const i = cats().indexOf(name), n = cats().length, empty = !N.files.some(f => catOf(f) === name);
+  popMenu(x, y, [
+    {t: "Đổi tên, đổi thứ tự…", ic: "✎", fn: () => openCat(name)},
+    {t: "Đưa danh mục lên", ic: "▲", off: i === 0, fn: () => { const o = cats(); moveCat(name, o[i - 1], false); }},
+    {t: "Đưa danh mục xuống", ic: "▼", off: i === n - 1, fn: () => { const o = cats(); moveCat(name, o[i + 1], true); }},
+    null,
+    {t: empty ? "Xoá danh mục" : "Xoá danh mục (chuyển hết tệp ra trước)", ic: "🗑", danger: true, off: !empty, fn: () => { materialize(); N.cfg.order = N.cfg.order.filter(c => c !== name); delete N.cfg.sort[name]; persist("Xoá danh mục: " + name); }},
+  ]);
+}
+function renameFile(path) {
+  const f = N.files.find(z => z.path === path); if (!f) return;
+  const d = dialog();
+  d.innerHTML = `<div class="dl"><h3>Sửa tên</h3><div class="lbl">Tên mới</div><input class="dl-title" id="rnTitle" maxlength="120" autocomplete="off">
+    <div class="dl-note">Đổi tên hiện ở mục lục (dòng tiêu đề <code>#</code> đầu file). Tệp <b>${esc(path)}</b> giữ nguyên đường dẫn để các liên kết tới nó không bị gãy.</div>
+    <div class="dl-foot"><button data-a="x">Huỷ</button><button class="primary" data-a="ok">Lưu tên</button></div></div>`;
+  const inp = d.querySelector("#rnTitle"); inp.value = f.title;
+  let busy = false;
+  const ok = async () => {
+    const t = inp.value.trim().replace(/\s+/g, " ");
+    if (!t) { inp.focus(); return; } if (t === f.title) return d.close();
+    if (busy) return; busy = true; d.querySelector('[data-a="ok"]').textContent = "Đang lưu…";
+    try { await window.navAdapter.rename(path, t); d.close(); toast("Đã đổi tên thành “" + t + "”."); }
+    catch (e) { toast(e.message, true, 6000); busy = false; d.querySelector('[data-a="ok"]').textContent = "Lưu tên"; }
+  };
+  d.onclick = e => { if (e.target === d) return d.close(); const b = e.target.closest("button"); if (!b) return; if (b.dataset.a === "x") d.close(); else if (b.dataset.a === "ok") ok(); };
+  inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); ok(); } };
+  d.showModal(); inp.focus(); inp.select();
+}
+function deleteFile(path) {
+  const f = N.files.find(z => z.path === path); if (!f) return;
+  const d = dialog();
+  d.innerHTML = `<div class="dl"><h3>Xoá tệp?</h3><p class="dl-q">Xoá <b>${esc(f.title)}</b><br><code>${esc(path)}</code></p>
+    <div class="dl-note">Tệp bị xoá khỏi repo. Nếu lỡ tay, vẫn lấy lại được trong lịch sử GitHub (nhờ Claude khôi phục).</div>
+    <div class="dl-foot"><button data-a="x">Huỷ</button><button class="danger" data-a="ok">Xoá</button></div></div>`;
+  let busy = false;
+  d.onclick = async e => {
+    if (e.target === d) return d.close(); const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.a === "x") return d.close();
+    if (b.dataset.a !== "ok" || busy) return; busy = true; b.textContent = "Đang xoá…";
+    try {
+      await window.navAdapter.remove(path);
+      materialize(); delete N.cfg.files[path]; for (const k of Object.keys(N.cfg.sort)) N.cfg.sort[k] = N.cfg.sort[k].filter(p => p !== path);
+      N.files = N.files.filter(z => z.path !== path); persist("Xoá tệp: " + f.title.slice(0, 40));
+      d.close(); toast("Đã xoá “" + f.title + "”.");
+    } catch (err) { toast(err.message, true, 6000); busy = false; b.textContent = "Xoá"; }
+  };
+  d.showModal(); d.querySelector('[data-a="x"]').focus();
 }
 
 /* ---------------- hộp thoại ---------------- */
@@ -140,6 +261,7 @@ function openCat(name) {
     const nn = cleanName(v, name); if (!nn) { d.querySelector("#catName").value = name; return name; }
     materialize(); N.cfg.order = N.cfg.order.map(c => c === name ? nn : c);
     for (const k of Object.keys(N.cfg.files)) if (N.cfg.files[k] === name) N.cfg.files[k] = nn;
+    if (N.cfg.sort[name]) { N.cfg.sort[nn] = N.cfg.sort[name]; delete N.cfg.sort[name]; }
     if (fold[name] !== undefined) { fold[nn] = fold[name]; delete fold[name]; saveFold(); }
     persist(`Đổi tên danh mục: ${name} → ${nn}`); name = nn; return nn;
   };
@@ -243,6 +365,13 @@ css.textContent = `
 .cat-empty{padding:10px;font-size:12px;color:var(--muted);text-align:center}
 .nrow{display:flex;align-items:stretch;border-radius:8px;position:relative}.nrow .item{flex:1;min-width:0}
 .nrow.dragging{opacity:.4}
+.nrow.drop-b{box-shadow:0 -2px 0 var(--accent)}.nrow.drop-a{box-shadow:0 2px 0 var(--accent)}
+#navMenu{position:fixed;z-index:3500;min-width:220px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:5px}
+#navMenu button{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;color:inherit;text-align:left;padding:7px 10px;border-radius:7px;font-size:14px}
+#navMenu button:hover:not(:disabled),#navMenu button:focus-visible{background:var(--accent-soft);color:var(--accent);outline:none}
+#navMenu button:disabled{opacity:.4;cursor:default}#navMenu button.danger:not(:disabled){color:#d0453a}#navMenu button.danger:hover:not(:disabled){background:rgba(208,69,58,.12);color:#d0453a}
+#navMenu .ic{width:18px;text-align:center;flex:none;opacity:.8}#navMenu hr{border:0;border-top:1px solid var(--line);margin:4px 2px}
+#navDlg .dl-q{margin:10px 0 0;line-height:1.5;word-break:break-all}#navDlg button.danger{background:#d0453a;border-color:#d0453a;color:#fff}
 .nmv{border:0;background:none;color:var(--muted);padding:0 8px;opacity:0;font-size:14px}
 .nrow:hover .nmv,.nmv:focus{opacity:1}.nmv:hover{color:var(--accent)}
 @media (hover:none){.nmv{opacity:.6}}

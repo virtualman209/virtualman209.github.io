@@ -817,6 +817,33 @@ window.navAdapter = {
     setTimeout(persist, 0);
   },
   openNew(path) { $("#app").classList.remove("nav-open"); drawNav(); go(path); if (!dgEd) setEditing(true); },
+  rename(path, title) {                                 // đổi dòng tiêu đề "# …" (giữ nguyên đường dẫn tệp), một commit
+    if (editing && cur && cur.path === path) return Promise.reject(new Error("Đang sửa tệp này. Lưu hoặc huỷ trước rồi đổi tên."));
+    if (dgEd && cur && cur.path === path) leaveDiagram();
+    const job = saving.then(async () => {
+      const d = docs[path]; if (!d) throw new Error("Không thấy file " + path);
+      const text = /^# .*/m.test(d.text) ? d.text.replace(/^# .*/m, "# " + title) : "# " + title + "\n\n" + d.text;
+      d.sha = await commit(path, text, d.sha, `Đổi tên: ${title}`); d.text = text; d.title = titleOf(text, path);
+    });
+    saving = job.catch(() => {});
+    return job.then(() => { drawNav(); if (cur && cur.path === path) go(path); });
+  },
+  remove(path) {                                        // xoá tệp khỏi repo (cần có mạng)
+    if (editing && cur && cur.path === path) return Promise.reject(new Error("Đang sửa tệp này. Lưu hoặc huỷ trước rồi xoá."));
+    if (offline) return Promise.reject(new Error("Đang offline. Có mạng rồi xoá."));
+    if (outq().some(x => x.path === path)) return Promise.reject(new Error("Tệp này còn bản sửa chưa gửi lên GitHub. Đợi gửi xong rồi xoá."));
+    if (dgEd && cur && cur.path === path) leaveDiagram();
+    const job = saving.then(async () => {
+      const d = docs[path]; if (!d) throw new Error("Không thấy file " + path);
+      await gh(`/repos/${auth.repo}/contents/${encPath(path)}`, {method: "DELETE", body: JSON.stringify({message: `Xoá tệp ${path} từ web`, sha: d.sha, branch})});
+      delete docs[path]; persist();
+    });
+    saving = job.catch(() => {});
+    return job.then(() => {
+      drawNav();
+      if (cur && cur.path === path) { cur = null; go(docs["projects/dunmorn/README.md"] ? "projects/dunmorn/README.md" : Object.keys(docs)[0]); }
+    }, async e => { if (e.status === 409 || e.status === 422) { try { await loadAll(); } catch {} } throw e; });
+  },
   async load() {
     if (offline || outq().some(x => x.path === "nav.json")) return navCfg;
     try { const r = await gh(`/repos/${auth.repo}/contents/nav.json?ref=${encodeURIComponent(branch)}`); navSha = r.sha; navCfg = JSON.parse(b64decode(r.content.replace(/\s/g, ""))); persist(); return navCfg; }
