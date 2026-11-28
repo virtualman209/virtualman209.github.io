@@ -335,6 +335,13 @@ function template(rootText, ox = 0, oy = 0) {
   const L = (a, b, lbl) => ({id: uid(), t: "l", ...DEF_LINE, a: {id: a.id, sd: "b"}, b: {id: b.id, sd: "t"}, lbl: lbl || "", lfs: 22});
   return [L(root, p[0]), L(root, p[1]), L(root, p[2]), L(p[1], c[0], "Mô tả mối quan hệ"), L(p[1], c[1], "Mối quan hệ"), root, ...p, ...c];
 }
+/* mẫu "4 góc + trung tâm" (chủ nhà 28/11, theo ảnh bảng so sánh Harry Potter): 4 ô ở 4 góc chạm vào góc của 1 ô giữa; ô để trống, bấm vào để gõ */
+function template4(ox = 0, oy = 0) {
+  const st = {fill: "#ffffff", stroke: "#1f2a44", sw: 2, tc: "#1f2a44", fs: 22, b: 0};
+  const S = (x, y, w, h, al) => ({id: uid(), t: "s", shp: "rect", txt: "", x: x + ox, y: y + oy, w, h, ...DEF_SHAPE, ...st, al});
+  const W = 380, H = 150, CH = 90;                                     // ô góc rộng W cao H, ô giữa rộng W cao CH
+  return [S(0, 0, W, H, "l"), S(2 * W, 0, W, H, "l"), S(W, H, W, CH, "c"), S(0, H + CH, W, H, "l"), S(2 * W, H + CH, W, H, "l")];
+}
 function newFileText(title, withTemplate) {
   const items = withTemplate ? template(String(title || "").toUpperCase()) : [];
   return `# ${title}\n\n${block({items})}\n`;
@@ -399,13 +406,13 @@ function mount(host, opts = {}) {
       <button type="button" data-tool="sticky" title="Giấy note (S)">${svgI("sticky")}<span>Note</span></button>
       <button type="button" data-tool="pen" title="Bút vẽ (D)">${svgI("pen")}<span>Vẽ</span></button>
       <span class="dg-hsep"></span>
-      <button type="button" data-tool="tpl" title="Thêm sơ đồ mẫu: ý chính → 3 nhánh → ý con">${svgI("tpl")}<span>Mẫu</span></button>
+      <button type="button" data-tool="tpl" title="Thêm sơ đồ mẫu: ý chính → 3 nhánh, hoặc 4 góc + ô trung tâm">${svgI("tpl")}<span>Mẫu</span></button>
     </div>
     <div class="dg-ctx" hidden></div>
     <div class="dg-pop" hidden></div>
     <div class="dg-menu" hidden></div>
     <div class="dg-hint" hidden></div>
-    <div class="dg-empty" hidden><b>Sơ đồ trống</b><span>Chọn <b>Hình</b> bên trái rồi bấm vào trang, hoặc bấm <b>Mẫu</b> để có sẵn ý chính → 3 nhánh.</span></div>
+    <div class="dg-empty" hidden><b>Sơ đồ trống</b><span>Chọn <b>Hình</b> bên trái rồi bấm vào trang, hoặc bấm <b>Mẫu</b> để chọn sơ đồ mẫu có sẵn.</span></div>
     <div class="dg-zoom">
       <button type="button" data-a="zout" title="Thu nhỏ (Ctrl −)">−</button><button type="button" data-a="z100" class="dg-zl" title="Về 100% (Ctrl+0)">100%</button><button type="button" data-a="zin" title="Phóng to (Ctrl +)">+</button>
       <button type="button" data-a="fit" title="Xem toàn bộ (Shift+1)">${svgI("fit")}</button>
@@ -700,7 +707,12 @@ function mount(host, opts = {}) {
   q(".dg-tools").addEventListener("click", e => {
     const b = e.target.closest("[data-tool]"); if (!b) return;
     const t = b.dataset.tool, r = b.getBoundingClientRect(), s = stage.getBoundingClientRect(), at = {x: r.right - s.left + 10, y: r.top - s.top - 8};
-    if (t === "tpl") { addTemplate(); return; }
+    if (t === "tpl") {
+      showPop(at, "Sơ đồ mẫu", [
+        {html: `<svg class="tpi" viewBox="0 0 48 32"><ellipse cx="24" cy="5" rx="8" ry="4"/><rect x="2" y="15" width="12" height="5" rx="2.5"/><rect x="18" y="15" width="12" height="5" rx="2.5"/><rect x="34" y="15" width="12" height="5" rx="2.5"/><rect x="14" y="26" width="9" height="5"/><rect x="25" y="26" width="9" height="5"/><path d="M24 9v6M8 15v-3h32v3M24 20v6"/></svg><span>Ý chính → 3 nhánh</span>`, fn: () => addTemplate()},
+        {html: `<svg class="tpi" viewBox="0 0 48 32"><rect x="2" y="3" width="15" height="10"/><rect x="31" y="3" width="15" height="10"/><rect x="17" y="13" width="14" height="6"/><rect x="2" y="19" width="15" height="10"/><rect x="31" y="19" width="15" height="10"/></svg><span>4 góc + ô trung tâm</span>`, fn: () => addTemplate("4")}], "list");
+      return;
+    }
     if (t === "shape") {
       setTool("select"); b.classList.add("open");
       showPop(at, "Hình", [...SHAPES.map(([k, tt]) => ({html: shpIcon(k), title: tt + " — bấm rồi bấm / kéo trên trang", fn: () => setTool("shape", k)}))], "grid");
@@ -720,9 +732,9 @@ function mount(host, opts = {}) {
     return it;
   };
   const center = () => ({x: (stage.clientWidth / 2 - view.x) / view.z, y: (stage.clientHeight / 2 - view.y) / view.z});
-  function addTemplate() {
+  function addTemplate(kind) {
     setTool("select");
-    const c = center(), t = template("Ý TƯỞNG CHÍNH"), b = union(t, idMap(t)), dx = c.x - (b.x0 + b.x1) / 2, dy = c.y - (b.y0 + b.y1) / 2;
+    const c = center(), t = kind === "4" ? template4() : template("Ý TƯỞNG CHÍNH"), b = union(t, idMap(t)), dx = c.x - (b.x0 + b.x1) / 2, dy = c.y - (b.y0 + b.y1) / 2;
     for (const it of t) if (it.t === "s") { it.x += dx; it.y += dy; }
     items.push(...t); sel = new Set(t.filter(i => i.t === "s").map(i => i.id)); render(); commit(); fitTo(t);
   }
@@ -1306,6 +1318,7 @@ css.textContent = `
 .dg-grid .dg-po{height:48px;justify-content:center;padding:0}.dg-grid .shi{width:40px;height:28px;fill:#d6daf8;stroke:#1f3f99}
 .dg-list{display:flex;flex-direction:column;gap:2px;min-width:190px}.dg-list hr,.dg-menu hr{border:0;border-top:1px solid #ececf1;margin:4px 0}
 .dg-po{display:flex;align-items:center;gap:10px;border:1px solid transparent;background:none;border-radius:8px;padding:6px 8px;cursor:pointer;text-align:left}
+.dg-po .tpi{width:48px;height:32px;flex:none;fill:#fff;stroke:#1f3f99;stroke-width:1.3}
 .dg-po:hover{background:#f1f1f5}.dg-po.on{border-color:${SEL};background:#f6f3ff}
 .dg-po kbd,.dg-menu kbd{margin-left:auto;color:#9a9dab;font:12px ${FONT}}
 .dg-cols{display:grid;grid-template-columns:repeat(6,30px);gap:7px}
