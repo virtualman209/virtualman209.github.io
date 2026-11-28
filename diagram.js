@@ -464,6 +464,10 @@ function mount(host, opts = {}) {
     if (editingId) placeEdit();
   }
   const hs = () => 1 / view.z;
+  function inText(it, w) {                  // điểm (toạ độ bảng) nằm trong vùng chữ của hình
+    if (!it || it.t !== "s" || it.lk) return false;
+    const I = inset(it); return w.x >= it.x + I.l && w.x <= it.x + it.w - I.r && w.y >= it.y + I.t && w.y <= it.y + it.h - I.b;
+  }
   function renderUI() {
     const z = hs(), M = map(); let s = "";
     const L = selList();
@@ -485,6 +489,10 @@ function mount(host, opts = {}) {
         if (b) {
           s += `<rect x="${b.x0}" y="${b.y0}" width="${b.x1 - b.x0}" height="${b.y1 - b.y0}" fill="none" stroke="${SEL}" stroke-width="${2 * z}" pointer-events="none"/>`;
           if (one && !one.lk && !editingId && (one.t === "s" || one.t === "d")) s += handles(one, b, z);
+          if (one && one.t === "s" && !one.lk && !editingId && !drag && !(one.txt || "").trim()) {   // hình trống: dấu nháy nhấp nháy ở chỗ gõ chữ
+            const I = inset(one), cx = one.shp === "text" ? one.x + 2 : one.x + I.l + (one.w - I.l - I.r) / 2, cy = one.y + I.t + (one.h - I.t - I.b) / 2, hh = one.fs * .62;
+            s += `<line class="dg-caret" x1="${cx}" y1="${cy - hh}" x2="${cx}" y2="${cy + hh}" stroke="${SEL}" stroke-width="${Math.max(1.5, 2 * z)}" pointer-events="none"/>`;
+          }
         }
       }
     }
@@ -924,9 +932,10 @@ function mount(host, opts = {}) {
     const id = itemUnder(e);
     if (id) {
       if (e.shiftKey || e.ctrlKey || e.metaKey) { if (sel.has(id)) sel.delete(id); else sel.add(id); render(); drag = null; return; }
+      const wasSel = sel.size === 1 && sel.has(id);                     // bấm lần nữa vào giữa hình đang chọn = gõ chữ (như Canva)
       if (!sel.has(id)) sel = new Set([id]);
       const L = selList().filter(i => !i.lk);
-      drag = {type: "move", w0: w, sx: e.clientX, sy: e.clientY, alt: e.altKey, ids: L.map(i => i.id), orig: new Map(L.map(i => [i.id, clone(i)]))};
+      drag = {type: "move", w0: w, sx: e.clientX, sy: e.clientY, alt: e.altKey, ids: L.map(i => i.id), orig: new Map(L.map(i => [i.id, clone(i)])), wasSel, hit: id};
       render(); return;
     }
     if (!e.shiftKey) sel.clear();
@@ -936,7 +945,9 @@ function mount(host, opts = {}) {
   svg.addEventListener("pointermove", e => {
     if (pointers.has(e.pointerId)) pointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
     if (!drag) {
-      const id = tool === "select" ? itemUnder(e) : null, it = id && get(id), nh = it && it.t !== "l" ? id : (e.target.closest && e.target.closest("[data-cn],[data-bridge]") ? hover : null);
+      const id0 = tool === "select" ? itemUnder(e) : null;
+      svg.style.cursor = id0 && sel.size === 1 && sel.has(id0) && !editingId && inText(get(id0), toWorld(e)) ? "text" : "";
+      const id = id0, it = id && get(id), nh = it && it.t !== "l" ? id : (e.target.closest && e.target.closest("[data-cn],[data-bridge]") ? hover : null);
       if (nh !== hover) { hover = nh; renderUI(); }
       return;
     }
@@ -1034,6 +1045,7 @@ function mount(host, opts = {}) {
     const w = toWorld(e);
     if (d.type === "move") {
       if (d.moved) commit();
+      else if (d.wasSel && e.type === "pointerup" && !e.shiftKey && inText(get(d.hit), w)) { startEdit(d.hit, null, {x: e.clientX, y: e.clientY}); return; }
       else if (!d.alt && d.ids.length > 1 && !e.shiftKey) { const id = itemUnder(e); if (id) sel = new Set([id]); }
     } else if (d.type === "resize" || d.type === "lend") commit();
     else if (d.type === "connect") {
@@ -1312,6 +1324,7 @@ css.textContent = `
 .dg-zoom{position:absolute;right:12px;bottom:12px;display:flex;align-items:center;gap:2px;background:#fff;border-radius:10px;padding:3px;box-shadow:0 2px 10px rgba(20,20,40,.12),0 0 0 1px rgba(20,20,40,.05);z-index:4}
 .dg-zoom button{border:0;background:none;min-width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
 .dg-zoom button:hover{background:#f1f1f5}.dg-zoom .dg-zl{font-size:12px;min-width:48px}.dg-zoom .ic{width:17px;height:17px}
+.dg-caret{animation:dgBlink 1.05s steps(1) infinite}@keyframes dgBlink{50%{opacity:0}}
 .dg-edit{position:absolute;display:flex;justify-content:center;z-index:3;pointer-events:none}
 .dg-ed{pointer-events:auto;outline:none;font-family:${FONT};max-width:100%;caret-color:${SEL};overflow-wrap:break-word;word-break:break-word;user-select:text;-webkit-user-select:text;cursor:text}
 .dg-lbl{position:absolute;width:240px;z-index:6;padding:7px 10px;border:2px solid ${SEL};border-radius:8px;font:14px ${FONT};outline:none;background:#fff;color:#1f2330}
